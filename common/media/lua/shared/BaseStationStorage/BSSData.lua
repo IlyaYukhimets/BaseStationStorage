@@ -124,9 +124,10 @@ end
 -- May this player use this container for the given role right now?
 -- Adjacent containers are vanilla behaviour and always allowed; anything further must be a
 -- registered container of that role inside the safehouse the player is standing in.
+-- Admins get no shortcut here: the rule is about where you stand, not about your rank.
+-- (Managing the registry is a different right and still open to admins, see BSSServer.)
 function BSS.canUseRole(player, container, role)
     if not player or not container or not role then return false end
-    if BSS.isAdminLevel(player:getAccessLevel()) then return true end
 
     local containerSquare = nil
     if container.getSourceGrid then containerSquare = container:getSourceGrid() end

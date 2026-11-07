@@ -2,6 +2,6 @@ name=Base Station Storage
 id=BaseStationStorage
 description=Server-side registry of base storages (crates, fridges, cabinets). Crafting and cooking pull ingredients from registered containers; auto-sort puts items back into them.
 author=bobr
-modversion=1.1.0
+modversion=1.1.1
 pzversion=42
 versionMin=42.20

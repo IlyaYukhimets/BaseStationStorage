@@ -54,7 +54,7 @@ The 3-tile radius is not decoration: it is the distance at which the game shows 
 - Auto-sort runs through the vanilla `ISInventoryPane:transferItemsByWeight`: one ordinary transfer action per item, exactly like the "Transfer all" button.
 - A container's identity is its square plus its container type. Tear the object down and build another of the same type in the same place and it inherits the registration.
 - Building (`ISBuildIsoEntity`) also rebuilds its logic from the client container list, but its consumption goes through `BaseCraftingLogic.isContainersAccessible`, so Java itself refuses anything beyond 2.5 tiles. Registered containers do not help with building — a limitation, not a hole.
-- Admins and moderators bypass the "inside the safehouse" rule: base storage is reachable for them from anywhere, like their other admin powers.
+- The rule is the same for everyone, admins and moderators included: outside the safehouse the storage is unreachable for them too. Their administrative right to manage the registry (add and remove containers in any safehouse) stays — that is configuring a base, not taking from it.
 - Legacy crafting (`ISCraftAction` -> `RecipeManager.PerformMakeItem`) has no server-side distance check at all — a vanilla trait this guard does not cover yet.
 - The timed action packet only checks `id != -1` (`IDShort.isConsistent`), so a forged packet can claim another character. Not fixable from Lua: an engine limitation, not this mod's.
 
