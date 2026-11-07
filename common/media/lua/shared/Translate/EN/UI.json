@@ -36,5 +36,7 @@
     "UI_BSS_Type_shelf": "Shelf",
     "UI_BSS_Type_dresser": "Dresser",
     "UI_BSS_Type_sideboard": "Sideboard",
-    "UI_BSS_Type_floor": "Floor"
+    "UI_BSS_Type_floor": "Floor",
+    "UI_BSS_Deny_outside_base": "Base: storage is usable only inside the safehouse",
+    "UI_BSS_Deny_not_registered": "Base: that container is not part of the base and is too far"
 }

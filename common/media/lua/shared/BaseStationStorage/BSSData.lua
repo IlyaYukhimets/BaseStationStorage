@@ -95,10 +95,70 @@ function BSS.label(entry)
     return string.format("%s (%d,%d,%d)", name, entry.x, entry.y, entry.z)
 end
 
+-- Safehouse covering a square, or nil when the server has no safehouse there.
+function BSS.safehouseAt(square)
+    if not square then return nil end
+    if not SafeHouse or not SafeHouse.getSafeHouse then return nil end
+    return SafeHouse.getSafeHouse(square)
+end
+
+function BSS.sameSafehouse(first, second)
+    if not first or not second then return false end
+    return BSS.sameRectangle(first:getX(), first:getY(), first:getX2(), first:getY2(),
+        second:getX(), second:getY(), second:getX2(), second:getY2())
+end
+
+-- The rule the whole mod stands on: base storage is usable only from inside the base.
+-- The player must stand in the very same safehouse the container belongs to and be
+-- allowed there. Standing outside (or in someone else's safehouse) gives nothing.
+function BSS.canReachBase(player, playerSquare, containerSquare)
+    local containerSafehouse = BSS.safehouseAt(containerSquare)
+    if not containerSafehouse then return false end
+    local username = player:getUsername()
+    if not (containerSafehouse:isOwner(username) or containerSafehouse:playerAllowed(player)) then
+        return false
+    end
+    return BSS.sameSafehouse(BSS.safehouseAt(playerSquare), containerSafehouse)
+end
+
+-- May this player use this container for the given role right now?
+-- Adjacent containers are vanilla behaviour and always allowed; anything further must be a
+-- registered container of that role inside the safehouse the player is standing in.
+function BSS.canUseRole(player, container, role)
+    if not player or not container or not role then return false end
+    if BSS.isAdminLevel(player:getAccessLevel()) then return true end
+
+    local containerSquare = nil
+    if container.getSourceGrid then containerSquare = container:getSourceGrid() end
+    if not containerSquare then return true end -- bag, vehicle proxy, corpse: nothing to verify
+
+    local playerSquare = player:getCurrentSquare()
+    if not playerSquare then return false end
+
+    if BSS.isWithin(playerSquare:getX(), playerSquare:getY(), playerSquare:getZ(),
+        containerSquare:getX(), containerSquare:getY(), containerSquare:getZ(), BSS.TRUST_RADIUS) then
+        return true
+    end
+
+    local entry = BSS.getEntry(BSS.keyOfContainer(container))
+    if not (entry and BSS.hasRole(entry, role)) then return false end
+    return BSS.canReachBase(player, playerSquare, containerSquare)
+end
+
+function BSS.canUseDonor(player, container)
+    return BSS.canUseRole(player, container, "donor")
+end
+
+function BSS.canUseSink(player, container)
+    return BSS.canUseRole(player, container, "sink")
+end
+
 -- Appends registered containers that are not already in the list. Dedupe runs on the
 -- registry key rather than object identity: two Lua wrappers of the same Java container
 -- are not guaranteed to compare equal, coordinates always do.
-function BSS.appendRegistered(list, role)
+-- When a player is given, containers that player could not use right now (standing
+-- outside the base) are skipped, so the craft UI never offers an impossible recipe.
+function BSS.appendRegistered(list, role, player)
     if not list then return 0 end
     local existing = {}
     for i = 0, list:size() - 1 do
@@ -108,9 +168,11 @@ function BSS.appendRegistered(list, role)
     local added = 0
     for _, resolved in ipairs(BSS.resolveRegistered(role)) do
         if not existing[resolved.key] then
-            list:add(resolved.container)
-            existing[resolved.key] = true
-            added = added + 1
+            if not player or BSS.canUseDonor(player, resolved.container) then
+                list:add(resolved.container)
+                existing[resolved.key] = true
+                added = added + 1
+            end
         end
     end
     return added

@@ -17,7 +17,7 @@ local function installCraftFunnel()
     if originalGetContainers then
         ISInventoryPaneContextMenu.getContainers = function(character)
             local list = originalGetContainers(character)
-            BSS.appendRegistered(list, "donor")
+            BSS.appendRegistered(list, "donor", character)
             return list
         end
     else
@@ -30,7 +30,7 @@ local function installCraftFunnel()
         local originalTooltipContainers = CraftTooltip.getContainers
         function CraftTooltip:getContainers()
             originalTooltipContainers(self)
-            BSS.appendRegistered(self.containerList, "donor")
+            BSS.appendRegistered(self.containerList, "donor", self.character)
         end
     else
         print("[BaseStationStorage] WARNING: CraftTooltip:getContainers is missing, tooltips may undercount")

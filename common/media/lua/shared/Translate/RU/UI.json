@@ -36,5 +36,7 @@
     "UI_BSS_Type_shelf": "Полка",
     "UI_BSS_Type_dresser": "Комод",
     "UI_BSS_Type_sideboard": "Сервант",
-    "UI_BSS_Type_floor": "Пол"
+    "UI_BSS_Type_floor": "Пол",
+    "UI_BSS_Deny_outside_base": "База: хранилища доступны только внутри убежища",
+    "UI_BSS_Deny_not_registered": "База: этот контейнер не из базы и слишком далеко"
 }

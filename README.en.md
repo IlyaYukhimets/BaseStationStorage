@@ -9,6 +9,7 @@ Replaces the Craft From Containers mod on our server: no craft zones, no button 
 - **Crafting from the base.** Registered containers are appended to the same source list that vanilla crafting and Neat_Crafting use. The mod adds no crafting window of its own.
 - **Cooking from the fridge.** Ingredients come from the same registered containers, fridges and freezers included. Evolved recipes (salads, soups, burgers) and the B42 craft recipes both resolve their items through that one funnel, so no extra hook is needed.
 - **Auto-sort.** "Distribute over base" sends items from a container or your inventory into the registered storages: same item type first, then the first container with room.
+- **Inside the safehouse only.** Base storage works while you stand in your own safehouse; step outside and crafting and cooking stop seeing it. If a client still asks, the server refuses and says why.
 - **Per-container roles.** "Supply ingredients" and "accept items on sort" toggle independently, so a fridge can feed cooking without being filled with nails.
 - The registry lives on the server, is saved with the world and synced to clients, so it survives restarts and is the same for every player.
 
@@ -39,7 +40,7 @@ Registration is available to the safehouse owner and residents, plus admins and 
 The client only asks; the server decides:
 
 - `server/BSSServer.lua` handles `add`/`remove`/`toggle`/`sync`, validates coordinates, container existence, safehouse and permissions, and only then writes global `ModData` and transmits it.
-- `server/BSSGuard.lua` closes the second hole: vanilla `ISHandcraftAction:serverStart()` rebuilds the craft logic from the container list the client sent, and Java never validates `manualInputs` at all — it resolves an item by ID in any container in the world. The wrapper rejects a container that is neither registered nor within 3 tiles, and strips such items from manual inputs. Containers without a world square (bags, vehicles, corpses) are left alone, otherwise vanilla behaviour would break.
+- `server/BSSGuard.lua` applies the mod's rule to the container list the client sent: vanilla `ISHandcraftAction:serverStart()` rebuilds the craft logic from exactly that list, and Java never validates `manualInputs` at all — it resolves an item by ID in any container in the world. A container is allowed when it is adjacent (<=3 tiles, vanilla reach) or registered and the player stands in the same safehouse as the container. Everything else is rejected with a message to the player and a log line, and such items are stripped from manual inputs. Containers without a world square (bags, vehicles, corpses) are left alone, otherwise vanilla behaviour would break.
 - The same file solves the opposite problem: Java's `BaseCraftingLogic.isContainersAccessible()` refuses any container further than 2.5 tiles from the player, and it cannot be overridden from Lua. For registered donors `performRecipe` therefore runs our code: `updateFloorContainer` -> `recipeData:perform(...)` -> outputs via `Actions.addOrDropItem` -> `luaCallOnCreate` -> `processDestroyAndUsedItems`, i.e. the vanilla tail without the distance check. A failure there is only logged: there is no vanilla retry, so items can never be consumed twice.
 
 The 3-tile radius is not decoration: it is the distance at which the game shows container contents at all, so the wrapper can only add sources and never remove what the player already had.
@@ -52,7 +53,9 @@ The 3-tile radius is not decoration: it is the distance at which the game shows 
 - **Heating food stays vanilla.** Assembling a dish (salad, soup, burger) out of a registered fridge works; frying raw meat "from across the room" does not — heating lives in Java and needs the food physically inside the stove's container with the stove switched on.
 - Auto-sort runs through the vanilla `ISInventoryPane:transferItemsByWeight`: one ordinary transfer action per item, exactly like the "Transfer all" button.
 - A container's identity is its square plus its container type. Tear the object down and build another of the same type in the same place and it inherits the registration.
-- Building (`ISBuildIsoEntity`) rebuilds its logic from the client container list just like crafting, but that path is not covered by our guard — the same class of hole crafting had before this mod.
+- Building (`ISBuildIsoEntity`) also rebuilds its logic from the client container list, but its consumption goes through `BaseCraftingLogic.isContainersAccessible`, so Java itself refuses anything beyond 2.5 tiles. Registered containers do not help with building — a limitation, not a hole.
+- Admins and moderators bypass the "inside the safehouse" rule: base storage is reachable for them from anywhere, like their other admin powers.
+- Legacy crafting (`ISCraftAction` -> `RecipeManager.PerformMakeItem`) has no server-side distance check at all — a vanilla trait this guard does not cover yet.
 - The timed action packet only checks `id != -1` (`IDShort.isConsistent`), so a forged packet can claim another character. Not fixable from Lua: an engine limitation, not this mod's.
 
 ## Layout

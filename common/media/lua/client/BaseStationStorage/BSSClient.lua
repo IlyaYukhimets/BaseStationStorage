@@ -134,8 +134,14 @@ Events.OnFillInventoryObjectContextMenu.Add(function(playerNum, context, items)
 end)
 
 Events.OnServerCommand.Add(function(module, command, args)
-    if module ~= BSS.NET_MODULE or command ~= "reply" then return end
+    if module ~= BSS.NET_MODULE then return end
     if type(args) ~= "table" then return end
+
+    if command == "denied" then
+        notify(getText("UI_BSS_Deny_" .. tostring(args.err)))
+        return
+    end
+    if command ~= "reply" then return end
 
     if not args.ok then
         notify(getText("UI_BSS_Err_" .. tostring(args.err)))

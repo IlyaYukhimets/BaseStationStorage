@@ -82,6 +82,12 @@ equal(BSS.getEntry(nil), nil, "nil key returns nil")
 local keys = BSS.sortedKeys(registry.c)
 equal(keys[1], "world:1,1,0:crate", "sortedKeys is deterministic")
 
+-- Safehouse comparison ---------------------------------------------------------------
+check(BSS.sameRectangle(0, 0, 10, 10, 0, 0, 10, 10), "identical rectangles match")
+check(not BSS.sameRectangle(0, 0, 10, 10, 1, 0, 11, 10), "shifted rectangle does not match")
+check(not BSS.sameRectangle(0, 0, 10, 10, 0, 0, 10, 11), "resized rectangle does not match")
+check(not BSS.sameRectangle(0, 0, 10, 10, nil, 0, 10, 10), "missing bound never matches")
+
 -- Sort planning ----------------------------------------------------------------------
 local crate = { key = "a", free = 5, types = { ["Base.Nails"] = true } }
 local fridge = { key = "b", free = 20, types = { ["Base.Steak"] = true } }

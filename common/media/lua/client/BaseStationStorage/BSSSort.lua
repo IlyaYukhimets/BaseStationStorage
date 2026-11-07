@@ -40,7 +40,9 @@ function BSSSort.distribute(playerObj, source)
     local sourceKey = BSS.keyOfContainer(source)
     local candidates = {}
     for _, resolved in ipairs(BSS.resolveRegistered("sink")) do
-        if resolved.key ~= sourceKey then
+        -- Same rule as crafting: a base container beyond arm's reach only works while the
+        -- player stands inside that base, so outside it there is nothing to sort into.
+        if resolved.key ~= sourceKey and BSS.canUseSink(playerObj, resolved.container) then
             candidates[#candidates + 1] = {
                 key = resolved.key,
                 container = resolved.container,

@@ -109,3 +109,10 @@ function BSS.reserveCapacity(candidate, fullType, weight)
         candidate.types[fullType] = true
     end
 end
+
+-- Same safehouse rectangle. The game returns SafeHouse objects that are not guaranteed
+-- to be the same instance on every lookup, so identity is compared by bounds.
+function BSS.sameRectangle(ax, ay, ax2, ay2, bx, by, bx2, by2)
+    if not (ax and ay and ax2 and ay2 and bx and by and bx2 and by2) then return false end
+    return ax == bx and ay == by and ax2 == bx2 and ay2 == by2
+end
