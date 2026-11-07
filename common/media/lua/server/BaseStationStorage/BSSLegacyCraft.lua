@@ -17,19 +17,28 @@ if not isServer() then return end
 require "BaseStationStorage/BSS"
 require "BaseStationStorage/BSSData"
 
--- Returns reason, key when some container in the list must not be used right now.
-local function offendingContainer(character, containers)
-    if not containers then return nil end
+-- Returns the usable subset of the container list, the number of dropped entries and the
+-- reason for the first drop. Dropping entries instead of failing the action matters here:
+-- a floor recipe ignores most of the list, so a stale far container must not break it.
+local function allowedContainers(character, containers)
+    local kept = ArrayList.new()
+    local dropped, reason = 0, nil
     for i = 0, containers:size() - 1 do
         local container = containers:get(i)
-        if container and not BSS.canUseDonor(character, container) then
-            local key = BSS.keyOfContainer(container)
-            local reason = "not_registered"
-            if key and BSS.getEntry(key) then reason = "outside_base" end
-            return reason, key
+        if container then
+            if BSS.canUseDonor(character, container) then
+                kept:add(container)
+            else
+                dropped = dropped + 1
+                local key = BSS.keyOfContainer(container)
+                local why = "not_registered"
+                if key and BSS.getEntry(key) then why = "outside_base" end
+                reason = reason or why
+                print("[BaseStationStorage] legacy craft source dropped (" .. why .. "): " .. tostring(key))
+            end
         end
     end
-    return nil
+    return kept, dropped, reason
 end
 
 local installed = false
@@ -41,19 +50,24 @@ local function install()
 
     function ISCraftAction:complete()
         if self.containers then
-            local ok, reason, key = pcall(offendingContainer, self.character, self.containers)
+            local ok, kept, dropped, reason = pcall(allowedContainers, self.character, self.containers)
             if not ok then
                 -- A guard bug must not stop crafting: fall through to vanilla.
-                print("[BaseStationStorage] legacy guard error, allowing vanilla craft: " .. tostring(reason))
-            elseif reason then
-                print("[BaseStationStorage] legacy craft rejected for "
+                print("[BaseStationStorage] legacy guard error, allowing vanilla craft: " .. tostring(kept))
+                return originalComplete(self)
+            end
+            if kept:size() == 0 and self.containers:size() > 0 then
+                print("[BaseStationStorage] legacy craft stopped for "
                     .. tostring(self.character and self.character:getUsername())
-                    .. ": " .. tostring(reason) .. " " .. tostring(key))
+                    .. ": no usable containers (" .. tostring(reason) .. ")")
                 if self.character then
-                    sendServerCommand(self.character, BSS.NET_MODULE, "denied", { err = reason })
+                    sendServerCommand(self.character, BSS.NET_MODULE, "denied", { err = reason or "outside_base" })
                 end
                 -- The action counts as finished, only nothing is produced or consumed.
                 return true
+            end
+            if dropped > 0 then
+                self.containers = kept
             end
         end
         return originalComplete(self)

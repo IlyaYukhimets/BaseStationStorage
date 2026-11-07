@@ -9,8 +9,10 @@
 --  3) The rule of this mod: base storage is usable only from inside the base. So a
 --     registered container further away is legal only while the player stands in the very
 --     same safehouse -- that is BSS.canUseDonor().
--- Hence: reject what is not allowed, and for allowed-but-distant containers run the recipe
--- ourselves, replicating performCurrentRecipe minus the distance check.
+-- Hence: drop unreachable containers from the list (one by one -- the loot panel keeps
+-- stale containers open after the player walks away, and that must not block an ordinary
+-- craft), and for allowed-but-distant containers run the recipe ourselves, replicating
+-- performCurrentRecipe minus the distance check.
 
 if not isServer() then return end
 
@@ -28,30 +30,44 @@ local function isNear(character, square, playerSquare)
         square:getX(), square:getY(), square:getZ(), BSS.TRUST_RADIUS)
 end
 
--- Returns allowed, farDonor, reasonCode
-function BSS.evaluateCraft(character, containers)
-    if not character or not containers then return true, false, nil end
+-- Builds the container list the craft may actually use. Unreachable containers are
+-- dropped one by one instead of failing the whole craft: the loot panel keeps containers
+-- open after the player walks away, and rejecting everything would block a perfectly
+-- ordinary craft whose ingredients are all in reach.
+-- Returns kept (ArrayList), farDonor, droppedCount, dropReason
+function BSS.filterCraftContainers(character, containers)
+    local kept = ArrayList.new()
+    if not character or not containers then return kept, false, 0, nil end
     local playerSquare = character:getCurrentSquare()
-    if not playerSquare then return true, false, nil end
+    if not playerSquare then
+        for i = 0, containers:size() - 1 do
+            if containers:get(i) then kept:add(containers:get(i)) end
+        end
+        return kept, false, 0, nil
+    end
 
-    local farDonor = false
+    local farDonor, dropped, dropReason = false, 0, nil
     for i = 0, containers:size() - 1 do
         local container = containers:get(i)
         if container then
             if not BSS.canUseDonor(character, container) then
+                dropped = dropped + 1
                 local key = BSS.keyOfContainer(container)
                 local reason = "outside_base"
                 if not (key and BSS.getEntry(key)) then reason = "not_registered" end
-                return false, false, reason
-            end
-            local square = squareOf(container)
-            if square and not isNear(character, square, playerSquare) then
-                -- Java would refuse this one, so the craft has to go through our own path.
-                farDonor = true
+                dropReason = dropReason or reason
+                print("[BaseStationStorage] craft source dropped (" .. reason .. "): " .. tostring(key))
+            else
+                kept:add(container)
+                local square = squareOf(container)
+                if square and not isNear(character, square, playerSquare) then
+                    -- Java would refuse this one, so the craft has to go through our own path.
+                    farDonor = true
+                end
             end
         end
     end
-    return true, farDonor, nil
+    return kept, farDonor, dropped, dropReason
 end
 
 -- Manual inputs are not checked by Java at all, so they are filtered here with the same
@@ -117,27 +133,30 @@ local originalServerStart = ISHandcraftAction and ISHandcraftAction.serverStart
 if originalServerStart then
     -- Idempotent on purpose: a retried packet re-runs serverStart from scratch.
     function ISHandcraftAction:serverStart()
-        local callOk, allowed, farDonor, reason =
-            pcall(BSS.evaluateCraft, self.character, self.containers)
+        local callOk, kept, farDonor, dropped, reason =
+            pcall(BSS.filterCraftContainers, self.character, self.containers)
 
         if not callOk then
             -- A guard bug must not make crafting impossible.
-            print("[BaseStationStorage] guard error, allowing vanilla craft: " .. tostring(allowed))
-            allowed, farDonor = true, false
+            print("[BaseStationStorage] guard error, allowing vanilla craft: " .. tostring(kept))
+            return originalServerStart(self)
         end
 
-        if not allowed then
-            print("[BaseStationStorage] craft rejected for "
+        if kept:size() == 0 and self.containers and self.containers:size() > 0 then
+            -- Nothing usable left: crafting from a list we emptied would only crash.
+            print("[BaseStationStorage] craft stopped for "
                 .. tostring(self.character and self.character:getUsername())
-                .. ": " .. tostring(reason))
+                .. ": no usable containers (" .. tostring(reason) .. ")")
             if self.character then
-                -- Silent rejection looks like a broken recipe; tell the player why.
-                sendServerCommand(self.character, BSS.NET_MODULE, "denied", { err = reason })
+                sendServerCommand(self.character, BSS.NET_MODULE, "denied", { err = reason or "outside_base" })
             end
             self:forceStop()
             return
         end
 
+        if dropped > 0 then
+            self.containers = kept
+        end
         self.bssFarDonor = farDonor
         pcall(BSS.stripBlockedManualInputs, self)
         return originalServerStart(self)
