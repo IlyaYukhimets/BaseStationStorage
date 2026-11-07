@@ -41,6 +41,7 @@ The client only asks; the server decides:
 
 - `server/BSSServer.lua` handles `add`/`remove`/`toggle`/`sync`, validates coordinates, container existence, safehouse and permissions, and only then writes global `ModData` and transmits it.
 - `server/BSSGuard.lua` applies the mod's rule to the container list the client sent: vanilla `ISHandcraftAction:serverStart()` rebuilds the craft logic from exactly that list, and Java never validates `manualInputs` at all — it resolves an item by ID in any container in the world. A container is allowed when it is adjacent (<=3 tiles, vanilla reach) or registered and the player stands in the same safehouse as the container. Everything else is rejected with a message to the player and a log line, and such items are stripped from manual inputs. Containers without a world square (bags, vehicles, corpses) are left alone, otherwise vanilla behaviour would break.
+- `server/BSSLegacyCraft.lua` covers the old crafting system (`ISCraftAction`): its `RecipeManager.PerformMakeItem(recipe, item, character, containers)` means "run this recipe out of these containers" with no access check whatsoever. The wrapper sits on the Lua method `ISCraftAction:complete`, because a Java static cannot be overridden from Lua; on a rule violation the craft finishes without a result and the player is told why.
 - The same file solves the opposite problem: Java's `BaseCraftingLogic.isContainersAccessible()` refuses any container further than 2.5 tiles from the player, and it cannot be overridden from Lua. For registered donors `performRecipe` therefore runs our code: `updateFloorContainer` -> `recipeData:perform(...)` -> outputs via `Actions.addOrDropItem` -> `luaCallOnCreate` -> `processDestroyAndUsedItems`, i.e. the vanilla tail without the distance check. A failure there is only logged: there is no vanilla retry, so items can never be consumed twice.
 
 The 3-tile radius is not decoration: it is the distance at which the game shows container contents at all, so the wrapper can only add sources and never remove what the player already had.
@@ -55,7 +56,7 @@ The 3-tile radius is not decoration: it is the distance at which the game shows 
 - A container's identity is its square plus its container type. Tear the object down and build another of the same type in the same place and it inherits the registration.
 - Building (`ISBuildIsoEntity`) also rebuilds its logic from the client container list, but its consumption goes through `BaseCraftingLogic.isContainersAccessible`, so Java itself refuses anything beyond 2.5 tiles. Registered containers do not help with building — a limitation, not a hole.
 - The rule is the same for everyone, admins and moderators included: outside the safehouse the storage is unreachable for them too. Their administrative right to manage the registry (add and remove containers in any safehouse) stays — that is configuring a base, not taking from it.
-- Legacy crafting (`ISCraftAction` -> `RecipeManager.PerformMakeItem`) has no server-side distance check at all — a vanilla trait this guard does not cover yet.
+- Legacy crafting (`ISCraftAction` -> `RecipeManager.PerformMakeItem`) performs no access or distance checks in vanilla. The mod closes it too: `server/BSSLegacyCraft.lua` validates the container list before `PerformMakeItem` is called; on violation nothing is produced or consumed and the player sees the reason.
 - The timed action packet only checks `id != -1` (`IDShort.isConsistent`), so a forged packet can claim another character. Not fixable from Lua: an engine limitation, not this mod's.
 
 ## Layout
@@ -67,6 +68,7 @@ common/media/lua/shared/BaseStationStorage/BSSData.lua     registry in ModData, 
 common/media/lua/shared/Translate/{RU,EN}/UI.json          UI strings
 common/media/lua/server/BaseStationStorage/BSSServer.lua   authoritative side: commands, checks, writes
 common/media/lua/server/BaseStationStorage/BSSGuard.lua    craft container list validation
+common/media/lua/server/BaseStationStorage/BSSLegacyCraft.lua  same for legacy crafting
 common/media/lua/client/BaseStationStorage/BSSClient.lua   menus, requests, server replies
 common/media/lua/client/BaseStationStorage/BSSContainers.lua  craft UI integration (single point)
 common/media/lua/client/BaseStationStorage/BSSSort.lua     auto-sort
