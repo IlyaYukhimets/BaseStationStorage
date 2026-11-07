@@ -3,7 +3,7 @@
 -- Only BSS.lua takes part; ModData is a stand-in so BSSData.lua can be loaded and the
 -- registry accessors exercised without a running client or server.
 
-package.path = "media/lua/shared/?.lua;" .. package.path
+package.path = "common/media/lua/shared/?.lua;" .. package.path
 
 local failures = 0
 local checks = 0

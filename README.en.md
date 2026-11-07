@@ -58,18 +58,22 @@ The 3-tile radius is not decoration: it is the distance at which the game shows 
 ## Layout
 
 ```
-mod.info
-media/lua/shared/BaseStationStorage/BSS.lua         constants and pure helpers
-media/lua/shared/BaseStationStorage/BSSData.lua     registry in ModData, world binding
-media/lua/shared/Translate/{RU,EN}/UI.json          UI strings
-media/lua/server/BaseStationStorage/BSSServer.lua   authoritative side: commands, checks, writes
-media/lua/server/BaseStationStorage/BSSGuard.lua    craft container list validation
-media/lua/client/BaseStationStorage/BSSClient.lua   menus, requests, server replies
-media/lua/client/BaseStationStorage/BSSContainers.lua  craft UI integration (single point)
-media/lua/client/BaseStationStorage/BSSSort.lua     auto-sort
+common/mod.info                                     mod manifest
+common/media/lua/shared/BaseStationStorage/BSS.lua         constants and pure helpers
+common/media/lua/shared/BaseStationStorage/BSSData.lua     registry in ModData, world binding
+common/media/lua/shared/Translate/{RU,EN}/UI.json          UI strings
+common/media/lua/server/BaseStationStorage/BSSServer.lua   authoritative side: commands, checks, writes
+common/media/lua/server/BaseStationStorage/BSSGuard.lua    craft container list validation
+common/media/lua/client/BaseStationStorage/BSSClient.lua   menus, requests, server replies
+common/media/lua/client/BaseStationStorage/BSSContainers.lua  craft UI integration (single point)
+common/media/lua/client/BaseStationStorage/BSSSort.lua     auto-sort
 tests/logic_test.lua                                unit tests for the pure logic
 scripts/{check,deploy,verify}.sh                    gate, deploy, verify
 ```
+
+`common/` is not decoration: B42 only registers a mod that has a version directory (`common` or `42.x`), with `mod.info` and `media` inside it. Without one the server silently fails to find the mod and logs `required mod "<id>" not found` even though the files are right there.
+
+The only roots the server scans (`ZomboidFileSystem.getAllModFolders`) are the Workshop items (staged and installed) and **`<cachedir>/mods`, i.e. `Zomboid/mods`**. The `mods` folder inside the game install is not scanned by the dedicated server.
 
 ## Development
 

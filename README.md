@@ -70,18 +70,22 @@ scripts/verify.sh             # проверка уже развёрнутой �
 ## Структура
 
 ```
-mod.info
-media/lua/shared/BaseStationStorage/BSS.lua         константы и чистые функции (ключи, права, выбор цели)
-media/lua/shared/BaseStationStorage/BSSData.lua     реестр в ModData и привязка к объектам мира
-media/lua/shared/Translate/{RU,EN}/UI.json          тексты меню и сообщений
-media/lua/server/BaseStationStorage/BSSServer.lua   авторитетная сторона: команды, проверки, запись
-media/lua/server/BaseStationStorage/BSSGuard.lua    проверка списка контейнеров при крафте
-media/lua/client/BaseStationStorage/BSSClient.lua   меню, запросы, ответы сервера
-media/lua/client/BaseStationStorage/BSSContainers.lua  подмешивание в крафт-UI (одна точка)
-media/lua/client/BaseStationStorage/BSSSort.lua     автосортировка
+common/mod.info                                     манифест мода
+common/media/lua/shared/BaseStationStorage/BSS.lua         константы и чистые функции (ключи, права, выбор цели)
+common/media/lua/shared/BaseStationStorage/BSSData.lua     реестр в ModData и привязка к объектам мира
+common/media/lua/shared/Translate/{RU,EN}/UI.json          тексты меню и сообщений
+common/media/lua/server/BaseStationStorage/BSSServer.lua   авторитетная сторона: команды, проверки, запись
+common/media/lua/server/BaseStationStorage/BSSGuard.lua    проверка списка контейнеров при крафте
+common/media/lua/client/BaseStationStorage/BSSClient.lua   меню, запросы, ответы сервера
+common/media/lua/client/BaseStationStorage/BSSContainers.lua  подмешивание в крафт-UI (одна точка)
+common/media/lua/client/BaseStationStorage/BSSSort.lua     автосортировка
 tests/logic_test.lua                                юнит-тесты чистой логики
 scripts/{check,deploy,verify}.sh                    гейт, деплой, проверка
 ```
+
+`common/` — не прихоть: B42 регистрирует мод только при наличии каталога версии (`common` или `42.x`), причём вместе с `mod.info` и `media` внутри него. Мод без такого каталога сервер молча не находит и пишет в лог `required mod "<id>" not found`, хотя файлы лежат на месте.
+
+Каталоги, которые сервер вообще просматривает (`ZomboidFileSystem.getAllModFolders`): предметы Мастерской (staged и installed) и **`<cachedir>/mods`, то есть `Zomboid/mods`**. Каталог `mods` внутри установки игры выделенный сервер не сканирует — моду там делать нечего.
 
 ## Разработка
 
