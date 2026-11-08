@@ -1,15 +1,15 @@
 # Base Station Storage
 
-Server-side registry of base storages for Project Zomboid Build 42: crates, fridges, cabinets and shelves that the safehouse owner marks once, after which the game pulls ingredients out of them and puts items back in.
+Server-side registry of safehouse storage for Project Zomboid Build 42: crates, fridges, cabinets and shelves that the safehouse owner marks once, after which the game pulls ingredients out of them and puts items back in.
 
 Replaces the Craft From Containers mod on our server: no craft zones, no button in the safehouse panel, no waiting for the game to finish scanning a zone.
 
 ## Features
 
-- **Crafting from the base.** Registered containers are appended to the same source list that vanilla crafting and Neat_Crafting use. The mod adds no crafting window of its own.
+- **Crafting from the safehouse.** Registered containers are appended to the same source list that vanilla crafting and Neat_Crafting use. The mod adds no crafting window of its own.
 - **Cooking from the fridge.** Ingredients come from the same registered containers, fridges and freezers included. Evolved recipes (salads, soups, burgers) and the B42 craft recipes both resolve their items through that one funnel, so no extra hook is needed.
-- **Auto-sort.** "Distribute over base" sends items from a container or your inventory into the registered storages: same item type first, then the first container with room.
-- **Inside the safehouse only.** Base storage works while you stand in your own safehouse; step outside and crafting and cooking stop seeing it. If a client still asks, the server refuses and says why.
+- **Auto-sort.** "Sort into safehouse storage" sends items from a container or your inventory into the registered storages: same item type first, then the first container with room.
+- **Inside the safehouse only.** Safehouse storage works while you stand in your own safehouse; step outside and crafting and cooking stop seeing it. If a client still asks, the server refuses and says why.
 - **Per-container roles.** "Supply ingredients" and "accept items on sort" toggle independently, so a fridge can feed cooking without being filled with nails.
 - The registry lives on the server, is saved with the world and synced to clients, so it survives restarts and is the same for every player.
 
@@ -28,10 +28,10 @@ The server must have safehouses enabled: `PlayerSafehouse=true` or `AdminSafehou
 ## In game
 
 1. Claim a safehouse (right-click the floor inside a building -> Claim safehouse).
-2. Right-click a crate, fridge or cabinet -> **Base** -> **Add to base**.
-3. The same submenu toggles roles and removes the registration; "Show base list" prints the registry to the client console.
+2. Right-click a crate, fridge or cabinet -> **Safehouse** -> **Add to safehouse**.
+3. The same submenu toggles roles and removes the registration; "Show safehouse storage" prints the registry to the client console.
 4. Crafting and cooking immediately see the contents of those containers, as if they were open next to you.
-5. "Distribute over base" on a source container, or "Distribute my inventory over base" in the inventory menu.
+5. "Sort into safehouse storage" on a source container, or "Sort inventory into safehouse" in the inventory menu.
 
 Registration is available to the safehouse owner and residents, plus admins and moderators. The check runs against **the container's square**, not the player's position: standing next door does not let you register someone else's fridge.
 

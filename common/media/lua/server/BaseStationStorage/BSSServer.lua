@@ -6,9 +6,13 @@ if not isServer() then return end
 require "BaseStationStorage/BSS"
 require "BaseStationStorage/BSSData"
 
-local function reply(clientID, command, payload)
+-- Lua-биндинг sendServerCommand принимает игрока ПЕРВЫМ аргументом. Варианта с
+-- clientID не существует: попытка sendServerCommand(module, command, payload, clientID)
+-- падает с "No implementation found" уже после записи реестра, поэтому клиент остаётся
+-- без ответа и показывает ноль контейнеров.
+local function reply(player, command, payload)
     payload.cmd = command
-    sendServerCommand(BSS.NET_MODULE, "reply", payload, clientID)
+    sendServerCommand(player, BSS.NET_MODULE, "reply", payload)
 end
 
 -- Client tables arrive as plain Lua tables with arbitrary contents: coerce numbers,
@@ -41,24 +45,24 @@ end
 
 local handlers = {}
 
-function handlers.add(args, player, clientID)
+function handlers.add(args, player)
     local x, y, z, ctype = sanitize(args)
-    if not x then return reply(clientID, "add", { ok = false, err = "badargs" }) end
+    if not x then return reply(player, "add", { ok = false, err = "badargs" }) end
 
     local square = squareOf(x, y, z)
-    if not square then return reply(clientID, "add", { ok = false, err = "nosquare" }) end
+    if not square then return reply(player, "add", { ok = false, err = "nosquare" }) end
     if not BSS.findContainer(x, y, z, ctype) then
-        return reply(clientID, "add", { ok = false, err = "nocontainer" })
+        return reply(player, "add", { ok = false, err = "nocontainer" })
     end
     if not canManage(player, square) then
-        return reply(clientID, "add", { ok = false, err = "permission" })
+        return reply(player, "add", { ok = false, err = "permission" })
     end
 
     local key = BSS.keyOf(x, y, z, ctype)
     local registry = BSS.getData()
     if not registry.c[key] then
         if BSS.countRegistered() >= BSS.MAX_CONTAINERS then
-            return reply(clientID, "add", { ok = false, err = "limit" })
+            return reply(player, "add", { ok = false, err = "limit" })
         end
         registry.c[key] = {
             x = x, y = y, z = z, t = ctype,
@@ -67,66 +71,67 @@ function handlers.add(args, player, clientID)
         }
         ModData.transmit(BSS.DATA_KEY)
     end
-    return reply(clientID, "add", { ok = true, key = key, count = BSS.countRegistered() })
+    return reply(player, "add", { ok = true, key = key, count = BSS.countRegistered() })
 end
 
-function handlers.remove(args, player, clientID)
+function handlers.remove(args, player)
     local x, y, z, ctype = sanitize(args)
-    if not x then return reply(clientID, "remove", { ok = false, err = "badargs" }) end
+    if not x then return reply(player, "remove", { ok = false, err = "badargs" }) end
 
     local square = squareOf(x, y, z)
-    if not square then return reply(clientID, "remove", { ok = false, err = "nosquare" }) end
+    if not square then return reply(player, "remove", { ok = false, err = "nosquare" }) end
     if not canManage(player, square) then
-        return reply(clientID, "remove", { ok = false, err = "permission" })
+        return reply(player, "remove", { ok = false, err = "permission" })
     end
 
     local key = BSS.keyOf(x, y, z, ctype)
     local registry = BSS.getData()
     if not registry.c[key] then
-        return reply(clientID, "remove", { ok = false, err = "notregistered" })
+        return reply(player, "remove", { ok = false, err = "notregistered" })
     end
     registry.c[key] = nil
     ModData.transmit(BSS.DATA_KEY)
-    return reply(clientID, "remove", { ok = true, key = key, count = BSS.countRegistered() })
+    return reply(player, "remove", { ok = true, key = key, count = BSS.countRegistered() })
 end
 
 -- Two independent roles: "donor" supplies ingredients to craft and cooking,
 -- "sink" accepts items from auto-sort.
-function handlers.toggle(args, player, clientID)
+function handlers.toggle(args, player)
     local x, y, z, ctype = sanitize(args)
     local role = args and args.r
     if not x or (role ~= "donor" and role ~= "sink") then
-        return reply(clientID, "toggle", { ok = false, err = "badargs" })
+        return reply(player, "toggle", { ok = false, err = "badargs" })
     end
 
     local square = squareOf(x, y, z)
-    if not square then return reply(clientID, "toggle", { ok = false, err = "nosquare" }) end
+    if not square then return reply(player, "toggle", { ok = false, err = "nosquare" }) end
     if not canManage(player, square) then
-        return reply(clientID, "toggle", { ok = false, err = "permission" })
+        return reply(player, "toggle", { ok = false, err = "permission" })
     end
 
     local key = BSS.keyOf(x, y, z, ctype)
     local entry = BSS.getEntry(key)
-    if not entry then return reply(clientID, "toggle", { ok = false, err = "notregistered" }) end
+    if not entry then return reply(player, "toggle", { ok = false, err = "notregistered" }) end
 
     entry[role] = not BSS.hasRole(entry, role)
     ModData.transmit(BSS.DATA_KEY)
-    return reply(clientID, "toggle", {
+    return reply(player, "toggle", {
         ok = true, key = key, role = role,
         value = BSS.hasRole(entry, role), count = BSS.countRegistered(),
     })
 end
 
-function handlers.sync(args, player, clientID)
-    return reply(clientID, "sync", { ok = true, count = BSS.countRegistered() })
+function handlers.sync(args, player)
+    return reply(player, "sync", { ok = true, count = BSS.countRegistered() })
 end
 
-local function onClientCommand(module, command, player, args, clientID)
+-- OnClientCommand в B42 передаёт ровно четыре аргумента: module, command, player, args.
+local function onClientCommand(module, command, player, args)
     if module ~= BSS.NET_MODULE then return end
     local handler = handlers[command]
     if not handler or not player then return end
     -- A malformed packet must not take down the OnClientCommand chain for other mods.
-    local ok, err = pcall(handler, args, player, clientID)
+    local ok, err = pcall(handler, args, player)
     if not ok then
         print("[BaseStationStorage] command " .. tostring(command) .. " failed: " .. tostring(err))
     end
