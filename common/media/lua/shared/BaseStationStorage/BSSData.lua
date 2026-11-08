@@ -42,6 +42,7 @@ function BSS.setReplica(list)
                 replica[itemKey] = {
                     x = tonumber(item.x), y = tonumber(item.y), z = tonumber(item.z),
                     t = item.t,
+                    oi = tonumber(item.oi), ci = tonumber(item.ci),
                     donor = item.d ~= false,
                     sink = item.s ~= false,
                     by = item.b,
@@ -67,6 +68,7 @@ function BSS.exportList()
             out[#out + 1] = {
                 k = key,
                 x = entry.x, y = entry.y, z = entry.z, t = entry.t,
+                oi = entry.oi, ci = entry.ci,
                 d = BSS.hasRole(entry, "donor"),
                 s = BSS.hasRole(entry, "sink"),
                 b = entry.by,
@@ -109,46 +111,113 @@ function BSS.allEntries()
     return out
 end
 
-function BSS.findContainer(x, y, z, ctype)
+local function squareAt(x, y, z)
     if not getCell then return nil end
     local cell = getCell()
     if not cell then return nil end
-    local square = cell:getGridSquare(x, y, z)
+    return cell:getGridSquare(x, y, z)
+end
+
+-- Загружен ли чанк с этим квадратом. Нужно миграции: nil от findContainer означает
+-- либо "контейнера нет", либо "чанк не загружен", и путать эти случаи нельзя.
+function BSS.squareLoaded(x, y, z)
+    return squareAt(x, y, z) ~= nil
+end
+
+-- Перебор контейнеров объекта: у мебели их бывает несколько (холодильник и морозилка),
+-- поэтому getContainer() недостаточно -- он отдаёт только первый.
+local function forEachContainer(object, callback)
+    if not object then return end
+    if object.getContainerCount then
+        local count = object:getContainerCount()
+        for i = 0, count - 1 do
+            local container = object:getContainerByIndex(i)
+            if container then callback(container, i) end
+        end
+        return
+    end
+    if object.getContainer then
+        local container = object:getContainer()
+        if container then callback(container, 0) end
+    end
+end
+
+-- Индекс контейнера внутри родительского объекта и индекс самого объекта на квадрате.
+-- Та же пара, которой игра адресует контейнер в своих клиент-серверных командах.
+function BSS.containerIndexOf(container)
+    local parent = container and container.getParent and container:getParent() or nil
+    if not parent or not parent.getContainerCount then return nil, nil end
+    local index
+    for i = 0, parent:getContainerCount() - 1 do
+        if parent:getContainerByIndex(i) == container then index = i end
+    end
+    local objectIndex = parent.getObjectIndex and parent:getObjectIndex() or nil
+    return objectIndex, index
+end
+
+function BSS.findContainer(x, y, z, ctype, objectIndex, containerIndex)
+    local square = squareAt(x, y, z)
     if not square then return nil end
     local objects = square:getObjects()
     if not objects then return nil end
+
+    -- Прямое попадание по индексам: так же разрешает контейнер сам сервер игры.
+    if type(objectIndex) == "number" and objectIndex >= 0 and objectIndex < objects:size() then
+        local object = objects:get(objectIndex)
+        local found, matched = nil, false
+        forEachContainer(object, function(container, index)
+            if not matched and (containerIndex == nil or index == containerIndex)
+                and tostring(container:getType()) == ctype then
+                found = container
+                matched = true
+            end
+        end)
+        if found then return found, object end
+    end
+
+    -- Индексы могли съехать (объект переставили): ищем по типу на том же квадрате.
     for i = 0, objects:size() - 1 do
         local object = objects:get(i)
-        if object and object.getContainer then
-            local container = object:getContainer()
-            if container and tostring(container:getType()) == ctype then
-                return container, object
+        local found = nil
+        forEachContainer(object, function(container, index)
+            if not found and tostring(container:getType()) == ctype
+                and (containerIndex == nil or index == containerIndex) then
+                found = container
             end
-        end
+        end)
+        if found then return found, object end
     end
     return nil
 end
 
 -- Canonical identity of a container: its square plus its container type. Bags and
 -- carried containers have no source square, hence nil -- they can never be registered.
+-- Пол и инвентарь персонажа -- не хранилища: игра сама исключает их из переименования
+-- (ISInventoryPage:onBackpackRightMouseDown), и регистрировать их бессмысленно.
+local NON_REGISTRABLE = { floor = true, inventorymale = true, inventoryfemale = true }
+
 function BSS.keyOfContainer(container)
     if not container or not container.getSourceGrid then return nil end
     local square = container:getSourceGrid()
     if not square then return nil end
-    return BSS.keyOf(square:getX(), square:getY(), square:getZ(), tostring(container:getType()))
+    local ctype = tostring(container:getType())
+    if NON_REGISTRABLE[ctype] then return nil end
+    local objectIndex, containerIndex = BSS.containerIndexOf(container)
+    return BSS.keyOf(square:getX(), square:getY(), square:getZ(),
+        ctype, objectIndex, containerIndex)
 end
 
 function BSS.resolve(key)
-    local x, y, z, ctype = BSS.parseKey(key)
+    local x, y, z, ctype, objectIndex, containerIndex = BSS.parseKey(key)
     if not x then return nil end
-    return BSS.findContainer(x, y, z, ctype)
+    return BSS.findContainer(x, y, z, ctype, objectIndex, containerIndex)
 end
 
 -- Registered entries that currently resolve to a real container in a loaded chunk.
 function BSS.resolveRegistered(role)
     local out = {}
     for _, entry in ipairs(BSS.getEntries(role)) do
-        local key = BSS.keyOf(entry.x, entry.y, entry.z, entry.t)
+        local key = BSS.keyOf(entry.x, entry.y, entry.z, entry.t, entry.oi, entry.ci)
         if key then
             local container = BSS.resolve(key)
             if container then
@@ -157,6 +226,52 @@ function BSS.resolveRegistered(role)
         end
     end
     return out
+end
+
+-- Ключи, записанные до 1.3.0, не содержат индексов и после смены формата перестали бы
+-- находить свой контейнер. Переписываем их в новый вид. Запись удаляем только если чанк
+-- загружен и контейнера там действительно нет: иначе на старте сервера, когда мир ещё не
+-- поднят, миграция снесла бы весь реестр.
+-- Сколько записей ещё в старом виде: пока их не ноль, миграцию нужно повторять,
+-- потому что её результат зависит от того, какие чанки успели загрузиться.
+function BSS.countLegacyKeys()
+    local count = 0
+    for key in pairs(registry().c) do
+        if BSS.isLegacyKey(key) then count = count + 1 end
+    end
+    return count
+end
+
+function BSS.migrateKeys()
+    local containers = registry().c
+    -- Ключи собираем заранее: вставка в таблицу во время pairs() даёт
+    -- "invalid key to 'next'" на следующей итерации.
+    local legacy = {}
+    for key in pairs(containers) do
+        if BSS.isLegacyKey(key) then legacy[#legacy + 1] = key end
+    end
+
+    local migrated, dropped = 0, 0
+    for i = 1, #legacy do
+        local key = legacy[i]
+        local entry = containers[key]
+        if type(entry) == "table" then
+            local container = BSS.findContainer(entry.x, entry.y, entry.z, entry.t)
+            if container then
+                containers[key] = nil
+                entry.oi, entry.ci = BSS.containerIndexOf(container)
+                containers[BSS.keyOfContainer(container)] = entry
+                migrated = migrated + 1
+            elseif BSS.squareLoaded(entry.x, entry.y, entry.z) then
+                containers[key] = nil
+                dropped = dropped + 1
+            end
+        end
+    end
+    if migrated > 0 or dropped > 0 then
+        ModData.transmit(BSS.DATA_KEY)
+    end
+    return migrated, dropped
 end
 
 function BSS.label(entry)

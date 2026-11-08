@@ -39,4 +39,31 @@ local function installCraftFunnel()
     wrappersInstalled = true
 end
 
+-- Меню на иконке контейнера в колонке слева от окна добычи: там игра сама предлагает
+-- "Переименовать контейнер", и наше "Убежище" встаёт рядом -- одно привычное место для
+-- всех действий с контейнером, включая пустой ящик с пола.
+local function installContainerButtonMenu()
+    if not ISInventoryPage or not ISInventoryPage.addContainerButton then
+        print("[BaseStationStorage] WARNING: ISInventoryPage.addContainerButton is missing, loot-column menu inactive")
+        return
+    end
+
+    local originalAddContainerButton = ISInventoryPage.addContainerButton
+    function ISInventoryPage:addContainerButton(container, texture, name, tooltip)
+        local button = originalAddContainerButton(self, container, texture, name, tooltip)
+        if not button or not container then return button end
+
+        -- Ванильный обработчик не подменяем, а вызываем: он открывает общее контекстное
+        -- меню (переименование, админские действия) и возвращается раньше для сумок.
+        local vanillaRightClick = button.onRightMouseDown
+        button.onRightMouseDown = function(btn, x, y)
+            if vanillaRightClick then vanillaRightClick(btn, x, y) end
+            local page = btn.parent and btn.parent.parent
+            BSS.openContainerMenu(page and page.player or 0, btn.inventory or container)
+        end
+        return button
+    end
+end
+
 Events.OnGameStart.Add(installCraftFunnel)
+Events.OnGameStart.Add(installContainerButtonMenu)

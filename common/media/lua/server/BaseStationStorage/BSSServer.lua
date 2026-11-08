@@ -22,13 +22,16 @@ end
 
 -- Client tables arrive as plain Lua tables with arbitrary contents: coerce numbers,
 -- floor them and reject a container type that would corrupt the registry key.
+-- i/ci -- индекс объекта на квадрате и индекс контейнера в объекте: без них два ящика
+-- в стопке и половины холодильника неотличимы.
 local function sanitize(args)
     if type(args) ~= "table" then return nil end
     local x, y, z = tonumber(args.x), tonumber(args.y), tonumber(args.z)
     local ctype = args.t
     if not x or not y or not z then return nil end
     if not BSS.isValidContainerType(ctype) then return nil end
-    return math.floor(x), math.floor(y), math.floor(z), ctype
+    local objectIndex, containerIndex = tonumber(args.i), tonumber(args.c)
+    return math.floor(x), math.floor(y), math.floor(z), ctype, objectIndex, containerIndex
 end
 
 local function squareOf(x, y, z)
@@ -48,22 +51,43 @@ local function canManage(player, square)
     return safehouse:playerAllowed(player) and true or false
 end
 
+local migratedOnce = false
+
+-- Миграция ключей старого вида требует загруженного мира, поэтому запускаем её не только
+-- на старте сервера, но и при первом обращении клиента: к этому моменту чанк с базой уже
+-- поднят. Повторные вызовы бесплатны.
+local function ensureMigrated()
+    if migratedOnce then return end
+    -- На OnServerStarted мир ещё не поднят: getCell() == nil, и любая запись выглядела бы
+    -- как "контейнера нет". Поэтому миграцию повторяем при каждом обращении, пока хоть
+    -- одна запись остаётся в старом виде: её чанк мог быть ещё не загружен.
+    if not getCell or not getCell() then return end
+    local migrated, dropped = BSS.migrateKeys()
+    if migrated > 0 or dropped > 0 then
+        print(string.format("[BaseStationStorage] registry keys migrated: %d, dropped: %d", migrated, dropped))
+    end
+    if BSS.countLegacyKeys() == 0 then
+        migratedOnce = true
+    end
+end
+
 local handlers = {}
 
 function handlers.add(args, player)
-    local x, y, z, ctype = sanitize(args)
+    ensureMigrated()
+    local x, y, z, ctype, objectIndex, containerIndex = sanitize(args)
     if not x then return reply(player, "add", { ok = false, err = "badargs" }) end
 
     local square = squareOf(x, y, z)
     if not square then return reply(player, "add", { ok = false, err = "nosquare" }) end
-    if not BSS.findContainer(x, y, z, ctype) then
+    if not BSS.findContainer(x, y, z, ctype, objectIndex, containerIndex) then
         return reply(player, "add", { ok = false, err = "nocontainer" })
     end
     if not canManage(player, square) then
         return reply(player, "add", { ok = false, err = "permission" })
     end
 
-    local key = BSS.keyOf(x, y, z, ctype)
+    local key = BSS.keyOf(x, y, z, ctype, objectIndex, containerIndex)
     local registry = BSS.getData()
     if not registry.c[key] then
         if BSS.countRegistered() >= BSS.MAX_CONTAINERS then
@@ -71,6 +95,7 @@ function handlers.add(args, player)
         end
         registry.c[key] = {
             x = x, y = y, z = z, t = ctype,
+            oi = objectIndex, ci = containerIndex,
             donor = true, sink = true,
             by = player:getUsername(),
         }
@@ -80,7 +105,8 @@ function handlers.add(args, player)
 end
 
 function handlers.remove(args, player)
-    local x, y, z, ctype = sanitize(args)
+    ensureMigrated()
+    local x, y, z, ctype, objectIndex, containerIndex = sanitize(args)
     if not x then return reply(player, "remove", { ok = false, err = "badargs" }) end
 
     local square = squareOf(x, y, z)
@@ -89,7 +115,7 @@ function handlers.remove(args, player)
         return reply(player, "remove", { ok = false, err = "permission" })
     end
 
-    local key = BSS.keyOf(x, y, z, ctype)
+    local key = BSS.keyOf(x, y, z, ctype, objectIndex, containerIndex)
     local registry = BSS.getData()
     if not registry.c[key] then
         return reply(player, "remove", { ok = false, err = "notregistered" })
@@ -102,7 +128,8 @@ end
 -- Two independent roles: "donor" supplies ingredients to craft and cooking,
 -- "sink" accepts items from auto-sort.
 function handlers.toggle(args, player)
-    local x, y, z, ctype = sanitize(args)
+    ensureMigrated()
+    local x, y, z, ctype, objectIndex, containerIndex = sanitize(args)
     local role = args and args.r
     if not x or (role ~= "donor" and role ~= "sink") then
         return reply(player, "toggle", { ok = false, err = "badargs" })
@@ -114,7 +141,7 @@ function handlers.toggle(args, player)
         return reply(player, "toggle", { ok = false, err = "permission" })
     end
 
-    local key = BSS.keyOf(x, y, z, ctype)
+    local key = BSS.keyOf(x, y, z, ctype, objectIndex, containerIndex)
     local entry = BSS.getEntry(key)
     if not entry then return reply(player, "toggle", { ok = false, err = "notregistered" }) end
 
@@ -127,6 +154,7 @@ function handlers.toggle(args, player)
 end
 
 function handlers.sync(args, player)
+    ensureMigrated()
     return reply(player, "sync", { ok = true, count = BSS.countRegistered() })
 end
 
@@ -145,5 +173,6 @@ end
 Events.OnClientCommand.Add(onClientCommand)
 
 Events.OnServerStarted.Add(function()
+    ensureMigrated()
     print("[BaseStationStorage] server ready, registered containers: " .. BSS.countRegistered())
 end)

@@ -167,6 +167,86 @@ check(crate.types["Base.Saw"], "reserveCapacity records the new type")
 equal(BSS.pickSortTarget({ crate }, "Base.Saw", 2).key, "a", "second item of the same type reuses the container")
 equal(BSS.pickSortTarget({ crate }, "Base.Saw", 3), nil, "reserved space is respected")
 
+-- Identity: стопка ящиков и половины холодильника --------------------------------------
+local function makeSquare()
+    local objects = {}
+    local square = {
+        getX = function() return 10 end,
+        getY = function() return 10 end,
+        getZ = function() return 0 end,
+        addObject = function(_, object) objects[#objects + 1] = object return object end,
+    }
+    square.getObjects = function()
+        return {
+            size = function() return #objects end,
+            get = function(_, i) return objects[i + 1] end,
+        }
+    end
+    return square
+end
+
+local function makeObject(square, objectIndex, containerTypes)
+    local object = { containers = {}, index = objectIndex }
+    for i, ctype in ipairs(containerTypes) do
+        local name = ctype
+        object.containers[i] = {
+            getType = function() return name end,
+            getSourceGrid = function() return square end,
+            getParent = function() return object end,
+        }
+    end
+    object.getContainerCount = function() return #object.containers end
+    object.getContainerByIndex = function(_, i) return object.containers[i + 1] end
+    object.getObjectIndex = function() return object.index end
+    return object
+end
+
+local square = makeSquare()
+local crateA = makeObject(square, 0, { "crate" })
+local crateB = makeObject(square, 1, { "crate" })
+local chiller = makeObject(square, 2, { "fridge", "freezer" })
+square:addObject(crateA)
+square:addObject(crateB)
+square:addObject(chiller)
+getCell = function() return { getGridSquare = function() return square end } end
+
+equal(BSS.keyOfContainer(crateA:getContainerByIndex(0)), "world:10,10,0:crate#0:0", "first crate of a stack")
+equal(BSS.keyOfContainer(crateB:getContainerByIndex(0)), "world:10,10,0:crate#1:0", "second crate of the same stack gets its own key")
+check(BSS.keyOfContainer(crateA:getContainerByIndex(0)) ~= BSS.keyOfContainer(crateB:getContainerByIndex(0)),
+    "two crates on one square are distinguishable")
+equal(BSS.keyOfContainer(chiller:getContainerByIndex(0)), "world:10,10,0:fridge#2:0", "fridge half")
+equal(BSS.keyOfContainer(chiller:getContainerByIndex(1)), "world:10,10,0:freezer#2:1", "freezer half gets its own key")
+check(BSS.keyOfContainer(chiller:getContainerByIndex(0)) ~= BSS.keyOfContainer(chiller:getContainerByIndex(1)),
+    "the two halves of a fridge are distinguishable")
+
+check(BSS.findContainer(10, 10, 0, "crate", 1, 0) == crateB:getContainerByIndex(0), "resolve by indices finds the second crate")
+check(BSS.findContainer(10, 10, 0, "freezer", 2, 1) == chiller:getContainerByIndex(1), "resolve by indices finds the freezer half")
+check(BSS.findContainer(10, 10, 0, "fridge", 2, 0) == chiller:getContainerByIndex(0), "resolve by indices finds the fridge half")
+check(BSS.findContainer(10, 10, 0, "crate", 99, 0) == crateA:getContainerByIndex(0), "a shifted index falls back to the first match")
+
+local floorObject = makeObject(square, 3, { "floor" })
+check(BSS.keyOfContainer(floorObject:getContainerByIndex(0)) == nil, "the floor container is not registrable")
+local bodyObject = makeObject(square, 4, { "inventorymale" })
+check(BSS.keyOfContainer(bodyObject:getContainerByIndex(0)) == nil, "a character inventory is not registrable")
+
+-- Migration of pre-1.3.0 keys ----------------------------------------------------------
+serverSide = true
+local data = BSS.getData()
+data.c = {}
+data.c["world:10,10,0:crate"] = { x = 10, y = 10, z = 0, t = "crate", donor = true, sink = true }
+local migrated, dropped = BSS.migrateKeys()
+equal(migrated, 1, "a legacy key is migrated")
+equal(dropped, 0, "nothing is lost during migration")
+check(BSS.getEntry("world:10,10,0:crate#0:0") ~= nil, "the migrated key carries the object and container index")
+check(BSS.getEntry("world:10,10,0:crate") == nil, "the legacy key is gone")
+
+getCell = nil -- мир не поднят: отсутствие контейнера ничего не доказывает
+data.c = { ["world:99,99,0:crate"] = { x = 99, y = 99, z = 0, t = "crate" } }
+migrated, dropped = BSS.migrateKeys()
+equal(migrated, 0, "nothing to migrate while the chunk is unloaded")
+equal(dropped, 0, "an entry is never dropped just because the chunk is unloaded")
+check(BSS.getEntry("world:99,99,0:crate") ~= nil, "the entry survives an unloaded chunk")
+
 -- ------------------------------------------------------------------------------------
 print(string.format("%d checks, %d failures", checks, failures))
 os.exit(failures == 0 and 0 or 1)

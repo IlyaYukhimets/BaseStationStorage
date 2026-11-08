@@ -6,7 +6,7 @@ BSS = BSS or {}
 local BSS = BSS
 
 BSS.MOD_ID       = "BaseStationStorage"
-BSS.VERSION      = "1.0.0"
+BSS.VERSION      = "1.3.0"
 BSS.NET_MODULE   = "BaseStationStorage"
 BSS.DATA_KEY     = "BaseStationStorageData"
 BSS.DATA_VERSION = 1
@@ -21,19 +21,45 @@ BSS.TRUST_RADIUS = 3
 -- One auto-sort run plans every move before executing; the execution itself is the
 -- vanilla bulk transfer, which already queues one action per item.
 
-local KEY_PATTERN = "^world:(%-?%d+),(%-?%d+),(%-?%d+):([%w_%-%.]+)$"
+-- Квадрата и типа контейнера недостаточно: два ящика, стоящих друг на друге, и
+-- половины холодильника (холодильник/морозилка) давали одинаковый ключ, и реестр
+-- считал их одним хранилищем. Игра в своих сетевых командах адресует контейнер той же
+-- тройкой, что и мы: getObjectIndex() родительского объекта + индекс контейнера в нём
+-- (см. ISInventoryPage.lua, clearContainerExplore в ClientCommands.lua).
+-- Два паттерна, а не один с необязательной группой: в Lua-паттернах "?" применяется
+-- только к одиночному символу или классу, но не к захвату "(...)", поэтому
+-- "(#(%d+):(%d+))?$" не совпадает ни с чем.
+local KEY_PATTERN_FULL = "^world:(%-?%d+),(%-?%d+),(%-?%d+):([%w_%-%.]+)#(%-?%d+):(%-?%d+)$"
+local KEY_PATTERN_BASE = "^world:(%-?%d+),(%-?%d+),(%-?%d+):([%w_%-%.]+)$"
 
-function BSS.keyOf(x, y, z, ctype)
+-- Индексные части необязательны: ключи, записанные до 1.3.0, читаются как раньше и
+-- переносятся в новый вид при старте сервера.
+function BSS.keyOf(x, y, z, ctype, objectIndex, containerIndex)
     if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
     if not BSS.isValidContainerType(ctype) then return nil end
-    return string.format("world:%d,%d,%d:%s", x, y, z, ctype)
+    local base = string.format("world:%d,%d,%d:%s", x, y, z, ctype)
+    if type(objectIndex) == "number" and type(containerIndex) == "number" then
+        return base .. string.format("#%d:%d", objectIndex, containerIndex)
+    end
+    return base
 end
 
 function BSS.parseKey(key)
     if type(key) ~= "string" then return nil end
-    local x, y, z, ctype = key:match(KEY_PATTERN)
+    local x, y, z, ctype, objectIndex, containerIndex = key:match(KEY_PATTERN_FULL)
+    if x then
+        return tonumber(x), tonumber(y), tonumber(z), ctype,
+            tonumber(objectIndex), tonumber(containerIndex)
+    end
+    x, y, z, ctype = key:match(KEY_PATTERN_BASE)
     if not x then return nil end
-    return tonumber(x), tonumber(y), tonumber(z), ctype
+    return tonumber(x), tonumber(y), tonumber(z), ctype, nil, nil
+end
+
+-- Ключ старого вида: без пары "#объект:контейнер".
+function BSS.isLegacyKey(key)
+    local x, _, _, _, objectIndex = BSS.parseKey(key)
+    return x ~= nil and objectIndex == nil
 end
 
 -- Container type becomes part of the registry key, so ":" and "," must never slip in.

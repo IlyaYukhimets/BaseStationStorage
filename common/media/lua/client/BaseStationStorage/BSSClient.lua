@@ -32,9 +32,11 @@ end)
 local function payloadFor(container)
     local key = BSS.keyOfContainer(container)
     if not key then return nil end
-    local x, y, z, ctype = BSS.parseKey(key)
+    local x, y, z, ctype, objectIndex, containerIndex = BSS.parseKey(key)
     if not x then return nil end
-    return { x = x, y = y, z = z, t = ctype }, key
+    -- i/c -- идентичность контейнера: без них сервер не отличит второй ящик в стопке
+    -- от первого и морозилку от холодильника.
+    return { x = x, y = y, z = z, t = ctype, i = objectIndex, c = containerIndex }, key
 end
 
 local function onOff(value)
@@ -171,3 +173,16 @@ Events.OnServerCommand.Add(function(module, command, args)
         notify(string.format(getText("UI_BSS_ListCount"), args.count or 0))
     end
 end)
+
+-- Точка входа для меню на иконке контейнера в колонке (см. BSSContainers.lua).
+-- Сумки, пол и машины не регистрируются: у них нет собственного квадрата, и
+-- keyOfContainer вернёт nil, поэтому лишних пунктов не появляется.
+function BSS.openContainerMenu(playerNum, container)
+    if not container then return end
+    local playerObj = getSpecificPlayer(playerNum or 0)
+    if not playerObj then return end
+    if not BSS.keyOfContainer(container) then return end
+    local context = ISContextMenu.get(playerNum or 0, getMouseX(), getMouseY())
+    if not context then return end
+    fillBaseMenu(context, playerObj, container, container.getSourceGrid ~= nil)
+end
