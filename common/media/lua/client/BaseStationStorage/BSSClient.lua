@@ -93,31 +93,6 @@ end
 
 -- Right-click the crate/fridge/cabinet itself. This is the way to register an empty
 -- container: the loot-window route would need at least one item inside.
-Events.OnFillWorldObjectContextMenu.Add(function(playerNum, context, worldobjects, test)
-    if test or not context or not worldobjects then return end
-    -- Самовосстановление: если снапшот ещё не пришёл (вход в игру, переподключение),
-    -- просим его до того, как построим меню по устаревшей копии.
-    if not BSS.replicaReady() then send("sync") end
-    local playerObj = getSpecificPlayer(playerNum)
-    if not playerObj then return end
-
-    local seen = {}
-    for i = 1, #worldobjects do
-        local object = worldobjects[i]
-        if object and object.getContainer then
-            local container = object:getContainer()
-            if container then
-                local key = BSS.keyOfContainer(container)
-                if key and not seen[key] then
-                    seen[key] = true
-                    fillBaseMenu(context, playerObj, container, true)
-                    return
-                end
-            end
-        end
-    end
-end)
-
 -- Right-click your own inventory: distribute what you carry over the registered sinks.
 Events.OnFillInventoryObjectContextMenu.Add(function(playerNum, context, items)
     if not context or not items or #items == 0 then return end
@@ -182,6 +157,9 @@ function BSS.openContainerMenu(playerNum, container)
     local playerObj = getSpecificPlayer(playerNum or 0)
     if not playerObj then return end
     if not BSS.keyOfContainer(container) then return end
+    -- Самовосстановление: если снапшот ещё не пришёл (вход в игру, переподключение),
+    -- просим его до того, как построим меню по устаревшей копии.
+    if not BSS.replicaReady() then send("sync") end
     local context = ISContextMenu.get(playerNum or 0, getMouseX(), getMouseY())
     if not context then return end
     fillBaseMenu(context, playerObj, container, container.getSourceGrid ~= nil)

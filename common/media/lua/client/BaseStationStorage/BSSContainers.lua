@@ -42,6 +42,8 @@ end
 -- Меню на иконке контейнера в колонке слева от окна добычи: там игра сама предлагает
 -- "Переименовать контейнер", и наше "Убежище" встаёт рядом -- одно привычное место для
 -- всех действий с контейнером, включая пустой ящик с пола.
+local insideRightClick = false
+
 local function installContainerButtonMenu()
     if not ISInventoryPage or not ISInventoryPage.addContainerButton then
         print("[BaseStationStorage] WARNING: ISInventoryPage.addContainerButton is missing, loot-column menu inactive")
@@ -53,11 +55,25 @@ local function installContainerButtonMenu()
         local button = originalAddContainerButton(self, container, texture, name, tooltip)
         if not button or not container then return button end
 
-        -- Ванильный обработчик не подменяем, а вызываем: он открывает общее контекстное
-        -- меню (переименование, админские действия) и возвращается раньше для сумок.
-        local vanillaRightClick = button.onRightMouseDown
+        -- Чужой обработчик не подменяем, а вызываем: он открывает общее контекстное меню
+        -- (переименование, пресеты, админские действия) и раньше выходит для сумок.
+        --
+        -- Ссылку на классовый обработчик читаем в МОМЕНТ КЛИКА, а не при создании кнопки.
+        -- Моды кастомизации контейнеров оборачивают ISInventoryPage.onBackpackRightMouseDown
+        -- позже нас; кнопки, созданные раньше, держат старую ссылку и теряли их пункты
+        -- (кнопка пола пересоздаётся при переходе, поэтому у неё подменю оставалось).
+        local capturedRightClick = button.onRightMouseDown
         button.onRightMouseDown = function(btn, x, y)
-            if vanillaRightClick then vanillaRightClick(btn, x, y) end
+            local current = ISInventoryPage and ISInventoryPage.onBackpackRightMouseDown
+            local handler = current or capturedRightClick
+            if handler and not insideRightClick then
+                insideRightClick = true -- защита от взаимной рекурсии, если чужой мод
+                local ok, err = pcall(handler, btn, x, y) -- вызывает button.onRightMouseDown обратно
+                insideRightClick = false
+                if not ok then
+                    print("[BaseStationStorage] container right-click handler failed: " .. tostring(err))
+                end
+            end
             local page = btn.parent and btn.parent.parent
             BSS.openContainerMenu(page and page.player or 0, btn.inventory or container)
         end

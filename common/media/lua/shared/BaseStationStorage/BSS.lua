@@ -6,7 +6,7 @@ BSS = BSS or {}
 local BSS = BSS
 
 BSS.MOD_ID       = "BaseStationStorage"
-BSS.VERSION      = "1.3.0"
+BSS.VERSION      = "1.3.1"
 BSS.NET_MODULE   = "BaseStationStorage"
 BSS.DATA_KEY     = "BaseStationStorageData"
 BSS.DATA_VERSION = 1
