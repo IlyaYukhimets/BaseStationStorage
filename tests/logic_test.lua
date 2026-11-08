@@ -247,6 +247,13 @@ equal(migrated, 0, "nothing to migrate while the chunk is unloaded")
 equal(dropped, 0, "an entry is never dropped just because the chunk is unloaded")
 check(BSS.getEntry("world:99,99,0:crate") ~= nil, "the entry survives an unloaded chunk")
 
+-- Добавление поверх старой записи не должно давать дубль -------------------------------
+serverSide = true
+data.c = { ["world:10,10,0:crate"] = { x = 10, y = 10, z = 0, t = "crate" } }
+equal(BSS.forgetLegacySibling(10, 10, 0, "crate"), 1, "the legacy sibling is dropped")
+equal(BSS.countRegistered(), 0, "no duplicate is left behind")
+equal(BSS.forgetLegacySibling(10, 10, 0, "crate"), 0, "nothing to drop the second time")
+
 -- ------------------------------------------------------------------------------------
 print(string.format("%d checks, %d failures", checks, failures))
 os.exit(failures == 0 and 0 or 1)

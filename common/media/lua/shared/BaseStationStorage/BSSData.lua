@@ -242,6 +242,21 @@ function BSS.countLegacyKeys()
     return count
 end
 
+-- Убирает запись старого вида для того же квадрата и типа. Нужна при добавлении: иначе
+-- контейнер, чья запись ещё не мигрирована, попал бы в реестр дважды.
+function BSS.forgetLegacySibling(x, y, z, ctype)
+    local containers = registry().c
+    local victims = {}
+    for key in pairs(containers) do
+        local ex, ey, ez, et, objectIndex = BSS.parseKey(key)
+        if objectIndex == nil and ex == x and ey == y and ez == z and et == ctype then
+            victims[#victims + 1] = key
+        end
+    end
+    for i = 1, #victims do containers[victims[i]] = nil end
+    return #victims
+end
+
 function BSS.migrateKeys()
     local containers = registry().c
     -- Ключи собираем заранее: вставка в таблицу во время pairs() даёт

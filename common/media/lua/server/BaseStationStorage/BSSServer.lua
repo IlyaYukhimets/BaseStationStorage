@@ -93,6 +93,7 @@ function handlers.add(args, player)
         if BSS.countRegistered() >= BSS.MAX_CONTAINERS then
             return reply(player, "add", { ok = false, err = "limit" })
         end
+        BSS.forgetLegacySibling(x, y, z, ctype)
         registry.c[key] = {
             x = x, y = y, z = z, t = ctype,
             oi = objectIndex, ci = containerIndex,
