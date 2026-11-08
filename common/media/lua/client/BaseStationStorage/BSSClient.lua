@@ -49,8 +49,10 @@ local function showRegistry()
     print("[BaseStationStorage] registered containers: " .. #entries)
     for i = 1, #entries do
         local entry = entries[i]
+        local key = BSS.keyOf(entry.x, entry.y, entry.z, entry.t, entry.oi, entry.ci)
+        local container = key and BSS.resolve(key) or nil
         print(string.format("  %s donor=%s sink=%s by=%s",
-            BSS.label(entry), tostring(BSS.hasRole(entry, "donor")),
+            BSS.labelOf(entry, container), tostring(BSS.hasRole(entry, "donor")),
             tostring(BSS.hasRole(entry, "sink")), tostring(entry.by)))
     end
     notify(string.format(getText("UI_BSS_ListCount"), #entries))

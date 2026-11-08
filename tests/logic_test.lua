@@ -254,6 +254,23 @@ equal(BSS.forgetLegacySibling(10, 10, 0, "crate"), 1, "the legacy sibling is dro
 equal(BSS.countRegistered(), 0, "no duplicate is left behind")
 equal(BSS.forgetLegacySibling(10, 10, 0, "crate"), 0, "nothing to drop the second time")
 
+-- Правило выбора цели раскладки ---------------------------------------------------------
+local plainSmall = { key = "plainSmall", free = 5, types = {} }
+local plainRoomy = { key = "plainRoomy", free = 40, types = {} }
+equal(BSS.pickSortTarget({ plainSmall, plainRoomy }, "Base.Saw", 3).key, "plainRoomy",
+    "without a type match the roomiest container wins")
+
+local sawSmall = { key = "sawSmall", free = 5, types = { ["Base.Saw"] = true } }
+equal(BSS.pickSortTarget({ plainRoomy, sawSmall }, "Base.Saw", 3).key, "sawSmall",
+    "an existing stack beats extra room")
+
+local sawRoomy = { key = "sawRoomy", free = 30, types = { ["Base.Saw"] = true } }
+equal(BSS.pickSortTarget({ sawSmall, sawRoomy }, "Base.Saw", 3).key, "sawRoomy",
+    "among containers already holding the item the roomiest wins")
+
+equal(BSS.pickSortTarget({ { key = "tight", free = 2, types = {} } }, "Base.Saw", 3), nil,
+    "no room means no target")
+
 -- ------------------------------------------------------------------------------------
 print(string.format("%d checks, %d failures", checks, failures))
 os.exit(failures == 0 and 0 or 1)

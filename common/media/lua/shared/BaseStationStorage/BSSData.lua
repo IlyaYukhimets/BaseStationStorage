@@ -289,6 +289,30 @@ function BSS.migrateKeys()
     return migrated, dropped
 end
 
+-- Пользовательское имя контейнера, если его задал SmarterStorage или совместимые
+-- моды (Rename Container, Rename Everything). Своих полей не заводим: читаем чужие
+-- ключи ModData объекта, поэтому имена продолжают работать, когда эти моды обновятся.
+local CUSTOM_NAME_KEYS = { "SmarterStorage_Name", "renameEverything_name", "RenameContainer_CustomName" }
+
+function BSS.customName(container)
+    local parent = container and container.getParent and container:getParent() or nil
+    local modData = parent and parent.getModData and parent:getModData() or nil
+    if not modData then return nil end
+    for i = 1, #CUSTOM_NAME_KEYS do
+        local value = modData[CUSTOM_NAME_KEYS[i]]
+        if type(value) == "string" and value ~= "" then return value end
+    end
+    return nil
+end
+
+-- Подпись записи: пользовательское имя, иначе переведённый тип и координаты.
+function BSS.labelOf(entry, container)
+    if type(entry) ~= "table" then return "?" end
+    local custom = BSS.customName(container)
+    if custom then return string.format("%s (%d,%d,%d)", custom, entry.x, entry.y, entry.z) end
+    return BSS.label(entry)
+end
+
 function BSS.label(entry)
     if type(entry) ~= "table" then return "?" end
     local translateKey = "UI_BSS_Type_" .. tostring(entry.t)

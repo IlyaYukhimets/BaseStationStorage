@@ -6,7 +6,7 @@ BSS = BSS or {}
 local BSS = BSS
 
 BSS.MOD_ID       = "BaseStationStorage"
-BSS.VERSION      = "1.3.1"
+BSS.VERSION      = "1.3.2"
 BSS.NET_MODULE   = "BaseStationStorage"
 BSS.DATA_KEY     = "BaseStationStorageData"
 BSS.DATA_VERSION = 1
@@ -112,17 +112,25 @@ function BSS.pickSortTarget(candidates, fullType, weight)
     if type(candidates) ~= "table" then return nil end
     weight = tonumber(weight) or 0
 
+    -- 1) Туда, где такой предмет уже лежит: стопки сливаются, а не расползаются.
+    local mergeInto = nil
     for i = 1, #candidates do
         local candidate = candidates[i]
         if (candidate.free or 0) >= weight and candidate.types and fullType and candidate.types[fullType] then
-            return candidate
+            if not mergeInto or (candidate.free or 0) > (mergeInto.free or 0) then mergeInto = candidate end
         end
     end
+    if mergeInto then return mergeInto end
+
+    -- 2) Иначе -- самый свободный: раскладка ложится кучно, а не по первому попавшемуся.
+    local best = nil
     for i = 1, #candidates do
         local candidate = candidates[i]
-        if (candidate.free or 0) >= weight then return candidate end
+        if (candidate.free or 0) >= weight then
+            if not best or (candidate.free or 0) > (best.free or 0) then best = candidate end
+        end
     end
-    return nil
+    return best
 end
 
 -- Applies one planned transfer to the candidate view so the next item in the same run
