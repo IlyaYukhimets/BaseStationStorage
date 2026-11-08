@@ -36,6 +36,10 @@ ModData = {
 getText = function(key) return key end
 getCell = nil
 
+-- Сторона исполнения переключается в тестах: сервер читает ModData, клиент -- снапшот.
+local serverSide = true
+isServer = function() return serverSide end
+
 require "BaseStationStorage/BSS"
 require "BaseStationStorage/BSSData"
 
@@ -78,6 +82,64 @@ equal(#BSS.getEntries("sink"), 1, "explicitly disabled role is honoured")
 check(BSS.getEntry("world:2,2,0:fridge") ~= nil, "entry lookup by key")
 equal(BSS.getEntry("world:9,9,9:crate"), nil, "unknown key returns nil")
 equal(BSS.getEntry(nil), nil, "nil key returns nil")
+
+-- Snapshot round trip: то, что сервер отправляет клиенту -------------------------------
+local exported = BSS.exportList()
+equal(#exported, 2, "exportList covers every registered container")
+equal(exported[1].k, "world:1,1,0:crate", "exportList is ordered by key")
+equal(exported[1].d, true, "exportList carries the donor flag")
+equal(exported[1].s, false, "exportList carries the disabled sink flag")
+equal(exported[2].d, true, "a missing role flag exports as enabled")
+
+serverSide = false -- с этого момента читаем как клиент
+equal(BSS.countRegistered(), 0, "a client starts with an empty replica")
+equal(BSS.getEntry("world:1,1,0:crate"), nil, "the replica is empty before the snapshot")
+BSS.setReplica(exported)
+check(BSS.replicaReady(), "the replica is marked ready after the snapshot")
+equal(BSS.countRegistered(), 2, "the snapshot fills the replica")
+equal(BSS.getEntry("world:1,1,0:crate").sink, false, "a disabled role survives the snapshot")
+equal(BSS.getEntry("world:2,2,0:fridge").donor, true, "a missing role means enabled after the snapshot")
+equal(#BSS.getEntries("sink"), 1, "getEntries filters the replica")
+equal(#BSS.allEntries(), 2, "allEntries lists the replica")
+BSS.setReplica({ { k = "broken" }, { k = 5 }, "мусор" })
+equal(BSS.countRegistered(), 1, "malformed snapshot entries are dropped, valid ones kept")
+BSS.setReplica({})
+equal(BSS.countRegistered(), 0, "an empty snapshot clears the replica")
+serverSide = true
+
+-- Safehouse rule: сервер закрыт по умолчанию, клиент не блокирует крафт вслепую --------
+local function square(x, y)
+    return { getX = function() return x end, getY = function() return y end, getZ = function() return 0 end }
+end
+local player = { getUsername = function() return "bobr" end, getCurrentSquare = function() return square(10, 10) end }
+
+SafeHouse = { getSafeHouse = function() return nil end }
+serverSide = true
+check(not BSS.canReachBase(player, square(10, 10), square(10, 10)), "server: no safehouse means no access")
+serverSide = false
+check(BSS.canReachBase(player, square(10, 10), square(10, 10)), "client: unknown safehouse does not block crafting")
+
+local houseA = {
+    getX = function() return 0 end, getY = function() return 0 end,
+    getX2 = function() return 20 end, getY2 = function() return 20 end,
+    isOwner = function(_, who) return who == "bobr" end,
+    playerAllowed = function() return true end,
+}
+local houseB = {
+    getX = function() return 100 end, getY = function() return 100 end,
+    getX2 = function() return 120 end, getY2 = function() return 120 end,
+    isOwner = function() return false end,
+    playerAllowed = function() return false end,
+}
+SafeHouse = { getSafeHouse = function(s) return (s:getX() < 50) and houseA or houseB end }
+
+serverSide = true
+check(BSS.canReachBase(player, square(10, 10), square(12, 12)), "server: owner inside the safehouse is allowed")
+check(not BSS.canReachBase(player, square(110, 110), square(12, 12)), "server: standing elsewhere is denied")
+serverSide = false
+check(not BSS.canReachBase(player, square(110, 110), square(12, 12)), "client: crafting from a foreign safehouse is hidden")
+check(BSS.canReachBase(player, square(10, 10), square(12, 12)), "client: own safehouse passes")
+serverSide = true
 
 local keys = BSS.sortedKeys(registry.c)
 equal(keys[1], "world:1,1,0:crate", "sortedKeys is deterministic")

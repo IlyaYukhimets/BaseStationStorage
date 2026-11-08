@@ -15,17 +15,19 @@ local function notify(text)
     if player and text then HaloTextHelper.addText(player, text) end
 end
 
--- Global ModData is synced to the client on join and on every ModData.transmit();
--- priming it here matches the vanilla forageClient pattern.
-Events.OnInitGlobalModData.Add(function()
-    ModData.getOrCreate(BSS.DATA_KEY)
-end)
-
 local function send(command, payload)
     local player = localPlayer()
     if not player then return end
     sendClientCommand(player, BSS.NET_MODULE, command, payload)
 end
+
+-- Реестр приходит снапшотом в ответ на sync и в каждом ответе на изменение:
+-- ModData на клиент не транслируется, поэтому её здесь и не трогаем.
+-- Регистрация строго после объявления send: local-функция, вызванная из замыкания
+-- выше её объявления, разрешилась бы в nil-глобал и упала при входе в игру.
+Events.OnGameStart.Add(function()
+    send("sync")
+end)
 
 local function payloadFor(container)
     local key = BSS.keyOfContainer(container)
@@ -41,16 +43,15 @@ local function onOff(value)
 end
 
 local function showRegistry()
-    local registry = BSS.getData()
-    local keys = BSS.sortedKeys(registry.c)
-    print("[BaseStationStorage] registered containers: " .. #keys)
-    for i = 1, #keys do
-        local entry = registry.c[keys[i]]
+    local entries = BSS.allEntries()
+    print("[BaseStationStorage] registered containers: " .. #entries)
+    for i = 1, #entries do
+        local entry = entries[i]
         print(string.format("  %s donor=%s sink=%s by=%s",
             BSS.label(entry), tostring(BSS.hasRole(entry, "donor")),
             tostring(BSS.hasRole(entry, "sink")), tostring(entry.by)))
     end
-    notify(string.format(getText("UI_BSS_ListCount"), #keys))
+    notify(string.format(getText("UI_BSS_ListCount"), #entries))
 end
 
 -- One submenu, same place for every container: add/remove, the two roles, sort.
@@ -92,6 +93,9 @@ end
 -- container: the loot-window route would need at least one item inside.
 Events.OnFillWorldObjectContextMenu.Add(function(playerNum, context, worldobjects, test)
     if test or not context or not worldobjects then return end
+    -- Самовосстановление: если снапшот ещё не пришёл (вход в игру, переподключение),
+    -- просим его до того, как построим меню по устаревшей копии.
+    if not BSS.replicaReady() then send("sync") end
     local playerObj = getSpecificPlayer(playerNum)
     if not playerObj then return end
 
@@ -136,6 +140,15 @@ end)
 Events.OnServerCommand.Add(function(module, command, args)
     if module ~= BSS.NET_MODULE then return end
     if type(args) ~= "table" then return end
+
+    -- Снапшот обновляем до разбора сообщения, чтобы следующий клик по контейнеру
+    -- уже видел актуальное состояние реестра.
+    if args.list ~= nil then
+        local applied = BSS.setReplica(args.list)
+        -- Строка для client console.txt: без неё расхождение "сервер знает, клиент нет"
+        -- снова придётся искать чтением кода.
+        print("[BaseStationStorage] реестр получен: " .. tostring(applied) .. " контейнер(ов)")
+    end
 
     if command == "denied" then
         notify(getText("UI_BSS_Deny_" .. tostring(args.err)))

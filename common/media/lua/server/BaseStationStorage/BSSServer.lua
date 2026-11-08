@@ -12,6 +12,11 @@ require "BaseStationStorage/BSSData"
 -- без ответа и показывает ноль контейнеров.
 local function reply(player, command, payload)
     payload.cmd = command
+    -- Клиент не получает ModData, поэтому каждый ответ несёт полный снапшот реестра.
+    -- Одно сообщение вместо отдельной синхронизации: клиент всегда отражает ровно то
+    -- состояние, по которому сервер только что принял решение.
+    payload.list = BSS.exportList()
+    payload.count = #payload.list
     sendServerCommand(player, BSS.NET_MODULE, "reply", payload)
 end
 

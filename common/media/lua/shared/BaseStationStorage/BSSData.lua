@@ -15,24 +15,96 @@ function BSS.getData()
     return registry()
 end
 
+-- Клиентская копия реестра. Сервер кладёт снапшот в каждый ответ (BSS.exportList),
+-- клиент держит его в обычной Lua-таблице. Полагаться на ModData.transmit нельзя:
+-- синхронизация до клиента не доходила, и вся клиентская логика (меню, список,
+-- подмешивание хранилищ в крафт) молча работала по пустой таблице.
+local replica = {}
+local replicaReady = false
+
+-- Единственное место, где решается "чьи данные читаем": сервер -- ModData, клиент -- копию.
+local function store()
+    if isServer() then return registry().c end
+    return replica
+end
+
+-- Разворачивает снапшот в клиентскую копию. Формат плоский: числа, строки, булевы
+-- значения -- ничего из ModData-обёрток, чтобы таблица пережила сетевую передачу.
+function BSS.setReplica(list)
+    replica = {}
+    -- Сетевые таблицы приходят обёртками Kahlua: проверяем не type(), а индексацию и
+    -- сами данные. Именно лишнее допущение о типе и дало тихий отказ в 1.2.1.
+    if list ~= nil then
+        for i = 1, #list do
+            local item = list[i]
+            local itemKey = item and item.k
+            if type(itemKey) == "string" then
+                replica[itemKey] = {
+                    x = tonumber(item.x), y = tonumber(item.y), z = tonumber(item.z),
+                    t = item.t,
+                    donor = item.d ~= false,
+                    sink = item.s ~= false,
+                    by = item.b,
+                }
+            end
+        end
+    end
+    replicaReady = true
+    return BSS.countRegistered()
+end
+
+function BSS.replicaReady()
+    return replicaReady
+end
+
+-- Снапшот для клиента; вызывается только на сервере, поэтому читает ModData.
+function BSS.exportList()
+    local out = {}
+    local containers = registry().c
+    for _, key in ipairs(BSS.sortedKeys(containers)) do
+        local entry = containers[key]
+        if type(entry) == "table" then
+            out[#out + 1] = {
+                k = key,
+                x = entry.x, y = entry.y, z = entry.z, t = entry.t,
+                d = BSS.hasRole(entry, "donor"),
+                s = BSS.hasRole(entry, "sink"),
+                b = entry.by,
+            }
+        end
+    end
+    return out
+end
+
 function BSS.getEntry(key)
     if type(key) ~= "string" then return nil end
-    return registry().c[key]
+    return store()[key]
 end
 
 function BSS.countRegistered()
     local count = 0
-    for _ in pairs(registry().c) do count = count + 1 end
+    for _ in pairs(store()) do count = count + 1 end
     return count
 end
 
 -- Entries that may supply ingredients (donor) or receive items (sink).
 function BSS.getEntries(role)
     local out = {}
-    local containers = registry().c
+    local containers = store()
     for _, key in ipairs(BSS.sortedKeys(containers)) do
         local entry = containers[key]
         if type(entry) == "table" and BSS.hasRole(entry, role) then out[#out + 1] = entry end
+    end
+    return out
+end
+
+-- Полный список в порядке ключей: команда "показать хранилища" и диагностика.
+function BSS.allEntries()
+    local out = {}
+    local containers = store()
+    for _, key in ipairs(BSS.sortedKeys(containers)) do
+        local entry = containers[key]
+        if type(entry) == "table" then out[#out + 1] = entry end
     end
     return out
 end
@@ -113,12 +185,25 @@ end
 -- allowed there. Standing outside (or in someone else's safehouse) gives nothing.
 function BSS.canReachBase(player, playerSquare, containerSquare)
     local containerSafehouse = BSS.safehouseAt(containerSquare)
+    local playerSafehouse = BSS.safehouseAt(playerSquare)
+
+    -- Клиент фильтрует только очевидное: он может не знать границ чужого убежища, а
+    -- молча выкинуть доступное хранилище -- значит сломать крафт без объяснения.
+    -- Подлинное решение принимает сервер (BSSGuard), и там правило закрыто по умолчанию.
+    if not isServer() then
+        if containerSafehouse and playerSafehouse
+            and not BSS.sameSafehouse(playerSafehouse, containerSafehouse) then
+            return false
+        end
+        return true
+    end
+
     if not containerSafehouse then return false end
     local username = player:getUsername()
     if not (containerSafehouse:isOwner(username) or containerSafehouse:playerAllowed(player)) then
         return false
     end
-    return BSS.sameSafehouse(BSS.safehouseAt(playerSquare), containerSafehouse)
+    return BSS.sameSafehouse(playerSafehouse, containerSafehouse)
 end
 
 -- May this player use this container for the given role right now?
