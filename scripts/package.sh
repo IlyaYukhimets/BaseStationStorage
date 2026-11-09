@@ -22,6 +22,11 @@ trap 'rm -rf "$STAGE"' EXIT INT TERM
 
 mkdir -p "$STAGE/BaseStationStorage"
 cp -R common "$STAGE/BaseStationStorage/common"
+# Загрузчик B42 пробует media/AnimSets и media/actiongroups в каждом моде и пишет
+# NoSuchFileException, если их нет. Своих анимаций у нас нет, но пустые каталоги
+# убирают мусор из лога. Git пустые каталоги не хранит -- создаём при сборке.
+mkdir -p "$STAGE/BaseStationStorage/common/media/AnimSets" \
+         "$STAGE/BaseStationStorage/common/media/actiongroups"
 
 cat > "$STAGE/BaseStationStorage/УСТАНОВКА.txt" <<EOF
 Base Station Storage $VERSION — мод для Project Zomboid Build 42
@@ -66,13 +71,21 @@ import zipfile
 
 stage, out = sys.argv[1], sys.argv[2]
 count = 0
+dirs = 0
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
     for base, _dirs, files in os.walk(stage):
         for name in sorted(files):
             path = os.path.join(base, name)
             archive.write(path, os.path.relpath(path, stage))
             count += 1
-print(f"файлов в архиве: {count}")
+        # os.walk отдаёт только файлы, поэтому пустые каталоги нужно записать явно --
+        # иначе они молча потеряются при распаковке у игрока.
+        if not files and not _dirs and base != stage:
+            entry = zipfile.ZipInfo(os.path.relpath(base, stage).replace(os.sep, "/") + "/")
+            entry.external_attr = 0o40755 << 16
+            archive.writestr(entry, "")
+            dirs += 1
+print(f"файлов в архиве: {count}, пустых каталогов: {dirs}")
 PY
 
 echo "архив: $OUT ($(wc -c < "$OUT") байт, версия $VERSION)"
