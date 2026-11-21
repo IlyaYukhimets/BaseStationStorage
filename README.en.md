@@ -13,6 +13,18 @@ Replaces the Craft From Containers mod on our server: no craft zones, no button 
 - **Per-container roles.** "Supply ingredients" and "accept items on sort" toggle independently, so a fridge can feed cooking without being filled with nails.
 - The registry lives on the server, is saved with the world and synced to clients, so it survives restarts and is the same for every player.
 
+## Download
+
+The ready-to-install archive lives in [Releases](https://github.com/IlyaYukhimets/BaseStationStorage/releases):
+`BaseStationStorage-<version>.zip`. It contains the `BaseStationStorage` folder and `УСТАНОВКА.txt`;
+unpack it so that `.../Zomboid/mods/BaseStationStorage/common/mod.info` exists.
+
+The archive is built automatically on every `vX.Y.Z` tag: `scripts/check.sh` gate, `scripts/package.sh`,
+a content check and the release publication. The tag must match `modversion` in `mod.info`, otherwise
+the build stops.
+
+License: MIT, see [LICENSE](LICENSE).
+
 ## Install
 
 ```sh

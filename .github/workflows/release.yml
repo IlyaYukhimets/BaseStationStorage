@@ -1,0 +1,76 @@
+name: release
+
+# Архив для игроков собирается на теге (vX.Y.Z) и прикладывается к GitHub Release.
+# Ручной запуск (workflow_dispatch) собирает то же самое и оставляет файл в артефактах,
+# ничего не публикуя, — удобно проверить сборку без релиза.
+#
+# Логика проверок живёт в scripts/ci.py, а не в heredoc внутри YAML: тело блочного
+# скаляра сохраняет отступы, и python получил бы исходник с ведущими пробелами
+# (IndentationError на первом же import).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Игра исполняет Kahlua (Lua 5.1), поэтому гейт идёт тем же компилятором.
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Gate (syntax, translations, unit tests)
+        run: sh scripts/check.sh
+
+      # Версия в моде и в имени тега должны совпадать: иначе игроки получат архив,
+      # который сервер считает другой версией, и это выяснится уже в игре.
+      - name: Check tag matches modversion
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(sed -n 's/^modversion=//p' common/mod.info | tr -d '[:space:]')
+          echo "tag=$tag modversion=$ver"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag $tag does not match modversion $ver"
+            exit 1
+          fi
+
+      - name: Build the player archive
+        run: sh scripts/package.sh
+
+      # Проверка того, что реально уедет игроку: каталог common/ на месте, пустые
+      # каталоги записаны отдельными записями, кириллица помечена UTF-8 (иначе
+      # Windows распакует УСТАНОВКА.txt в кракозябры).
+      - name: Verify the archive
+        run: |
+          ver=$(sed -n 's/^modversion=//p' common/mod.info | tr -d '[:space:]')
+          python3 scripts/ci.py verify-zip ".build/BaseStationStorage-$ver.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BaseStationStorage-zip
+          path: .build/*.zip
+          if-no-files-found: error
+
+      # Секция CHANGELOG для этой версии становится текстом релиза.
+      - name: Release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 scripts/ci.py notes "${GITHUB_REF_NAME#v}" > release-notes.md
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" ".build/BaseStationStorage-$ver.zip" \
+            --title "Base Station Storage $ver" \
+            --notes-file release-notes.md
