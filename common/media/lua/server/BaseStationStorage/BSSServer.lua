@@ -100,6 +100,7 @@ function handlers.add(args, player)
             donor = true, sink = true,
             by = player:getUsername(),
         }
+        BSS.invalidateCaches()
         ModData.transmit(BSS.DATA_KEY)
     end
     return reply(player, "add", { ok = true, key = key, count = BSS.countRegistered() })
@@ -122,6 +123,7 @@ function handlers.remove(args, player)
         return reply(player, "remove", { ok = false, err = "notregistered" })
     end
     registry.c[key] = nil
+    BSS.invalidateCaches()
     ModData.transmit(BSS.DATA_KEY)
     return reply(player, "remove", { ok = true, key = key, count = BSS.countRegistered() })
 end
@@ -147,6 +149,7 @@ function handlers.toggle(args, player)
     if not entry then return reply(player, "toggle", { ok = false, err = "notregistered" }) end
 
     entry[role] = not BSS.hasRole(entry, role)
+    BSS.invalidateCaches()
     ModData.transmit(BSS.DATA_KEY)
     return reply(player, "toggle", {
         ok = true, key = key, role = role,

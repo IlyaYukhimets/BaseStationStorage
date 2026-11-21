@@ -28,6 +28,35 @@ local function store()
     return replica
 end
 
+-- Кэши модуля. Резолв реестра в контейнеры мира -- самая дорогая операция: на каждую
+-- запись это getGridSquare, перебор объектов квадрата и tostring() на контейнер. Дёргают
+-- её пачками на одно действие игрока (контекстное меню, каждая подсказка рецепта,
+-- авто-сортировка), поэтому результат живёт короткий TTL, а мутации реестра сбрасывают
+-- кэш немедленно через BSS.invalidateCaches. TTL нужен только для одного случая, который
+-- инвалидацией не поймать: чанк с ящиком догрузился уже после резолва.
+local RESOLVE_TTL_MS = 400
+local resolveCache = {}
+local cacheGeneration = 0
+local sortedKeysCache = nil
+
+local function nowMs()
+    if getTimestampMs then return getTimestampMs() end
+    return nil
+end
+
+function BSS.invalidateCaches()
+    cacheGeneration = cacheGeneration + 1
+    resolveCache = {}
+    sortedKeysCache = nil
+end
+
+-- Порядок ключей нужен команде "показать хранилища" и детерминированной раскладке при
+-- сортировке, но table.sort на каждый вызов -- это лишние аллокации и сравнения строк.
+local function storeKeys()
+    if sortedKeysCache == nil then sortedKeysCache = BSS.sortedKeys(store()) end
+    return sortedKeysCache
+end
+
 -- Разворачивает снапшот в клиентскую копию. Формат плоский: числа, строки, булевы
 -- значения -- ничего из ModData-обёрток, чтобы таблица пережила сетевую передачу.
 function BSS.setReplica(list)
@@ -51,6 +80,7 @@ function BSS.setReplica(list)
         end
     end
     replicaReady = true
+    BSS.invalidateCaches()
     return BSS.countRegistered()
 end
 
@@ -62,7 +92,9 @@ end
 function BSS.exportList()
     local out = {}
     local containers = registry().c
-    for _, key in ipairs(BSS.sortedKeys(containers)) do
+    local keys = storeKeys()
+    for i = 1, #keys do
+        local key = keys[i]
         local entry = containers[key]
         if type(entry) == "table" then
             out[#out + 1] = {
@@ -93,8 +125,9 @@ end
 function BSS.getEntries(role)
     local out = {}
     local containers = store()
-    for _, key in ipairs(BSS.sortedKeys(containers)) do
-        local entry = containers[key]
+    local keys = storeKeys()
+    for i = 1, #keys do
+        local entry = containers[keys[i]]
         if type(entry) == "table" and BSS.hasRole(entry, role) then out[#out + 1] = entry end
     end
     return out
@@ -104,8 +137,9 @@ end
 function BSS.allEntries()
     local out = {}
     local containers = store()
-    for _, key in ipairs(BSS.sortedKeys(containers)) do
-        local entry = containers[key]
+    local keys = storeKeys()
+    for i = 1, #keys do
+        local entry = containers[keys[i]]
         if type(entry) == "table" then out[#out + 1] = entry end
     end
     return out
@@ -214,16 +248,29 @@ function BSS.resolve(key)
 end
 
 -- Registered entries that currently resolve to a real container in a loaded chunk.
+-- Возвращённый список кэширован и общий для всех вызывающих: его нельзя изменять.
 function BSS.resolveRegistered(role)
+    local now = nowMs()
+    local cached = now ~= nil and resolveCache[role] or nil
+    if cached and cached.generation == cacheGeneration and (now - cached.at) < RESOLVE_TTL_MS then
+        return cached.list
+    end
+
     local out = {}
     for _, entry in ipairs(BSS.getEntries(role)) do
-        local key = BSS.keyOf(entry.x, entry.y, entry.z, entry.t, entry.oi, entry.ci)
-        if key then
-            local container = BSS.resolve(key)
-            if container then
+        -- Ключ строим только для найденного контейнера: если чанк не загружен, keyOf
+        -- (два string.format) всё равно ушёл бы в мусор.
+        local container = BSS.findContainer(entry.x, entry.y, entry.z, entry.t, entry.oi, entry.ci)
+        if container then
+            local key = BSS.keyOf(entry.x, entry.y, entry.z, entry.t, entry.oi, entry.ci)
+            if key then
                 out[#out + 1] = { key = key, entry = entry, container = container }
             end
         end
+    end
+
+    if now ~= nil then
+        resolveCache[role] = { at = now, generation = cacheGeneration, list = out }
     end
     return out
 end
@@ -284,6 +331,7 @@ function BSS.migrateKeys()
         end
     end
     if migrated > 0 or dropped > 0 then
+        BSS.invalidateCaches()
         ModData.transmit(BSS.DATA_KEY)
     end
     return migrated, dropped
@@ -365,7 +413,9 @@ end
 -- registered container of that role inside the safehouse the player is standing in.
 -- Admins get no shortcut here: the rule is about where you stand, not about your rank.
 -- (Managing the registry is a different right and still open to admins, see BSSServer.)
-function BSS.canUseRole(player, container, role)
+-- knownKey -- ключ, уже посчитанный вызывающим (resolveRegistered его знает): keyOfContainer
+-- стоит getSourceGrid плюс перебор контейнеров родителя, и второй раз он не нужен.
+function BSS.canUseRole(player, container, role, knownKey)
     if not player or not container or not role then return false end
 
     local containerSquare = nil
@@ -380,17 +430,18 @@ function BSS.canUseRole(player, container, role)
         return true
     end
 
-    local entry = BSS.getEntry(BSS.keyOfContainer(container))
+    local key = knownKey or BSS.keyOfContainer(container)
+    local entry = key and BSS.getEntry(key) or nil
     if not (entry and BSS.hasRole(entry, role)) then return false end
     return BSS.canReachBase(player, playerSquare, containerSquare)
 end
 
-function BSS.canUseDonor(player, container)
-    return BSS.canUseRole(player, container, "donor")
+function BSS.canUseDonor(player, container, knownKey)
+    return BSS.canUseRole(player, container, "donor", knownKey)
 end
 
-function BSS.canUseSink(player, container)
-    return BSS.canUseRole(player, container, "sink")
+function BSS.canUseSink(player, container, knownKey)
+    return BSS.canUseRole(player, container, "sink", knownKey)
 end
 
 -- Appends registered containers that are not already in the list. Dedupe runs on the
@@ -400,17 +451,25 @@ end
 -- outside the base) are skipped, so the craft UI never offers an impossible recipe.
 function BSS.appendRegistered(list, role, player)
     if not list then return 0 end
+
+    -- Сначала резолв (он кэширован): если регистраций нет, ни ключи текущего списка,
+    -- ни множество existing считать не нужно -- это самый частый случай на сервере с
+    -- пустым реестром.
+    local resolved = BSS.resolveRegistered(role)
+    if #resolved == 0 then return 0 end
+
     local existing = {}
     for i = 0, list:size() - 1 do
         local key = BSS.keyOfContainer(list:get(i))
         if key then existing[key] = true end
     end
     local added = 0
-    for _, resolved in ipairs(BSS.resolveRegistered(role)) do
-        if not existing[resolved.key] then
-            if not player or BSS.canUseDonor(player, resolved.container) then
-                list:add(resolved.container)
-                existing[resolved.key] = true
+    for i = 1, #resolved do
+        local item = resolved[i]
+        if not existing[item.key] then
+            if not player or BSS.canUseDonor(player, item.container, item.key) then
+                list:add(item.container)
+                existing[item.key] = true
                 added = added + 1
             end
         end
