@@ -54,11 +54,14 @@ jobs:
           ver=$(sed -n 's/^modversion=//p' common/mod.info | tr -d '[:space:]')
           python3 scripts/ci.py verify-zip ".build/BaseStationStorage-$ver.zip"
 
+      # include-hidden-files обязателен: архив лежит в .build/, а upload-artifact@v4
+      # по умолчанию пропускает пути, начинающиеся с точки, и падает с "no files found".
       - uses: actions/upload-artifact@v4
         with:
           name: BaseStationStorage-zip
           path: .build/*.zip
           if-no-files-found: error
+          include-hidden-files: true
 
       # Секция CHANGELOG для этой версии становится текстом релиза.
       - name: Release notes from CHANGELOG
