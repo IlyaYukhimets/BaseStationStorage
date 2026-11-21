@@ -16,12 +16,14 @@ Replaces the Craft From Containers mod on our server: no craft zones, no button 
 ## Install
 
 ```sh
-scripts/check.sh              # Lua 5.1 syntax, translation JSON, unit tests
-scripts/deploy.sh --dry-run   # build the package and verify transport, server untouched
-scripts/deploy.sh --restart   # install and restart the container
-scripts/verify.sh             # inspect the deployed copy (read-only)
+scripts/check.sh     # Lua 5.1 syntax, translation JSON, unit tests — before any edit
+scripts/package.sh   # build the player archive into .build/
 ```
 
+Then install it as a regular local mod: `Zomboid/mods/BaseStationStorage/common/…` (the version
+directory is mandatory — a flat folder is silently ignored), add the id `BaseStationStorage` to `Mods=`
+in `servertest.ini` and to `mods/default.txt`, then restart the container. Verify with the line
+`loading BaseStationStorage` in the boot log.
 
 The server must have safehouses enabled: `PlayerSafehouse=true` or `AdminSafehouse=true` in `servertest.ini`. Without them the mod refuses registration — otherwise anyone could declare any container "base storage".
 

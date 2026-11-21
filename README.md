@@ -16,12 +16,14 @@
 ## Установка на сервер
 
 ```sh
-scripts/check.sh              # синтаксис Lua 5.1, JSON переводов, юнит-тесты
-scripts/deploy.sh --dry-run   # собрать пакет и проверить транспорт, сервер не трогать
-scripts/deploy.sh --restart   # установить и перезапустить контейнер
-scripts/verify.sh             # проверка уже развёрнутой копии (только чтение)
+scripts/check.sh     # синтаксис Lua 5.1, JSON переводов, юнит-тесты — перед любой правкой
+scripts/package.sh   # собрать архив для игроков в .build/
 ```
 
+Дальше мод раскладывается на сервер как обычный локальный мод: `Zomboid/mods/BaseStationStorage/common/…`
+(каталог версии обязателен, плоская папка не загрузится), id `BaseStationStorage` добавляется в `Mods=`
+в `servertest.ini` и в `mods/default.txt`, затем контейнер перезапускается. Проверка — строка
+`loading BaseStationStorage` в логе запуска.
 
 Требуется включённый сейфхаус на сервере: `PlayerSafehouse=true` или `AdminSafehouse=true` в `servertest.ini`. Без сейфхауса мод откажет в регистрации — иначе «базой» мог бы объявить что угодно любой игрок.
 
